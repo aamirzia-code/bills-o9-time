@@ -1,0 +1,96 @@
+name: Build app
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: "3.27.4"
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: "17"
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Generate platform folders
+        run: flutter create --platforms=android --org com.aatech --project-name bills_o9_time .
+      - name: Patch Android config
+        run: python3 tool/patch_platforms.py android
+      - run: flutter pub get
+      - name: App icon
+        continue-on-error: true
+        run: dart run flutter_launcher_icons
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Build APK
+        run: flutter build apk --release
+      - run: cp build/app/outputs/flutter-apk/app-release.apk BillsO9Time.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: BillsO9Time.apk
+
+  ios:
+    name: iOS IPA (unsigned, for Sideloadly)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Generate platform folders
+        run: flutter create --platforms=ios --org com.aatech --project-name bills_o9_time .
+      - name: Patch iOS config
+        run: python3 tool/patch_platforms.py ios
+      - run: flutter pub get
+      - name: App icon
+        continue-on-error: true
+        run: dart run flutter_launcher_icons
+      - name: Build iOS app
+        run: flutter build ios --release --no-codesign
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr BillsO9Time.ipa Payload
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: BillsO9Time.ipa
+
+  release:
+    name: Publish downloads
+    needs: [android, ios]
+    if: always() && (needs.android.result == 'success' || needs.ios.result == 'success')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la dist
+          TAG="build-${{ github.run_number }}"
+          gh release create "$TAG" dist/* \
+            --repo "${{ github.repository }}" \
+            --title "Bills O9 Time · build ${{ github.run_number }}" \
+            --notes "Android: download BillsO9Time.apk on your phone and install. iPhone: download BillsO9Time.ipa on your Mac and install with Sideloadly."

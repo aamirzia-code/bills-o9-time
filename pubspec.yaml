@@ -1,0 +1,39 @@
+name: bills_o9_time
+description: "Bills O9 Time - bill organizer, expense tracker and budget planner."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  provider: ^6.1.2
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  intl: ^0.19.0
+  fl_chart: ^0.68.0
+  flutter_local_notifications: ^17.2.4
+  timezone: ^0.9.4
+  pdf: ^3.11.1
+  share_plus: ^10.1.4
+  path_provider: ^2.1.5
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  flutter_launcher_icons: ^0.14.1
+
+flutter:
+  uses-material-design: true
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon.png"
+  adaptive_icon_background: "#0F766E"
+  adaptive_icon_foreground: "assets/icon_fg.png"
+  remove_alpha_ios: true
+  min_sdk_android: 21
