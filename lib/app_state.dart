@@ -195,7 +195,7 @@ class AppState extends ChangeNotifier {
   Future<void> _advanceBill(Bill b) async {
     final updated = b.repeat == Repeat.none
         ? b.copyWith(active: false)
-        : b.copyWith(dueDate: nextDue(b.dueDate, b.repeat));
+        : b.copyWith(dueDate: b.followingDue);
     await _db.update('bills', updated.toMap());
     await load();
     await Notifier.instance.scheduleBill(updated);

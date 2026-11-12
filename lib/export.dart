@@ -156,7 +156,7 @@ class Exporter {
                 [
                   b.name,
                   Fmt.date(b.dueDate),
-                  repeatLabel(b.repeat),
+                  b.schedule,
                   Fmt.money(b.amount),
                 ],
             ],

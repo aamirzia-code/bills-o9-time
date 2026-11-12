@@ -21,7 +21,7 @@ class AppDb {
     return factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-      version: 1,
+      version: 2,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, v) async {
         await db.execute('''
@@ -40,6 +40,7 @@ class AppDb {
             name TEXT NOT NULL, amount REAL NOT NULL,
             category_id INTEGER, account_id INTEGER,
             due_date INTEGER NOT NULL, repeat INTEGER NOT NULL,
+            due_day INTEGER NOT NULL DEFAULT 0,
             remind_days INTEGER NOT NULL DEFAULT 2,
             notes TEXT, active INTEGER NOT NULL DEFAULT 1)''');
         await db.execute('''
@@ -66,6 +67,21 @@ class AppDb {
         await db.execute('''
           CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)''');
         await _seed(db);
+      },
+      onUpgrade: (db, oldV, newV) async {
+        if (oldV < 2) {
+          // v2: bills remember the day of the month they're due on.
+          await db.execute(
+              'ALTER TABLE bills ADD COLUMN due_day INTEGER NOT NULL DEFAULT 0');
+          final rows = await db.query('bills', columns: ['id', 'due_date', 'repeat']);
+          for (final r in rows) {
+            final rep = Repeat.values[r['repeat'] as int];
+            if (!repeatsByMonth(rep)) continue;
+            final d = DateTime.fromMillisecondsSinceEpoch(r['due_date'] as int);
+            await db.update('bills', {'due_day': d.day},
+                where: 'id = ?', whereArgs: [r['id']]);
+          }
+        }
       },
       ),
     );

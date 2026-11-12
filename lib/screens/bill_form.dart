@@ -22,6 +22,7 @@ class _BillFormState extends State<BillForm> {
   late final TextEditingController _notes;
   late DateTime _due;
   late Repeat _repeat;
+  late int _dueDay;
   late int _remind;
   int? _categoryId;
   int? _accountId;
@@ -40,6 +41,7 @@ class _BillFormState extends State<BillForm> {
     _notes = TextEditingController(text: b?.notes ?? '');
     _due = b?.dueDate ?? DateTime.now().add(const Duration(days: 7));
     _repeat = b?.repeat ?? Repeat.monthly;
+    _dueDay = (b != null && b.dueDay > 0) ? b.dueDay : _due.day;
     _remind = b?.remindDaysBefore ?? 2;
     _categoryId = b?.categoryId;
     _accountId = context.read<AppState>().account(b?.accountId)?.id;
@@ -64,6 +66,7 @@ class _BillFormState extends State<BillForm> {
       accountId: _accountId,
       dueDate: DateTime(_due.year, _due.month, _due.day, 9),
       repeat: _repeat,
+      dueDay: repeatsByMonth(_repeat) ? _dueDay : 0,
       remindDaysBefore: _remind,
       notes: _notes.text.trim(),
       active: true,
@@ -71,9 +74,39 @@ class _BillFormState extends State<BillForm> {
     if (mounted) Navigator.pop(context);
   }
 
+  void _setDueDay(int day) {
+    setState(() {
+      _dueDay = day;
+      _due = nextOccurrenceOfDay(day);
+    });
+  }
+
+  void _setDate(DateTime d) {
+    setState(() {
+      _due = d;
+      if (repeatsByMonth(_repeat)) {
+        final isLast = DateTime(d.year, d.month + 1, 0).day == d.day;
+        _dueDay = (isLast && _dueDay == kLastDay) ? kLastDay : d.day;
+      }
+    });
+  }
+
+  List<DateTime> _upcoming() {
+    final list = <DateTime>[_due];
+    if (_repeat == Repeat.none) return list;
+    var d = _due;
+    for (var i = 0; i < 3; i++) {
+      d = nextDue(d, _repeat, dueDay: repeatsByMonth(_repeat) ? _dueDay : 0);
+      list.add(d);
+    }
+    return list;
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
+    final byMonth = repeatsByMonth(_repeat);
+    final cs = Theme.of(context).colorScheme;
     final cats = s.categoriesOf(TxType.expense);
     return Scaffold(
       appBar: AppBar(
@@ -105,11 +138,6 @@ class _BillFormState extends State<BillForm> {
             const SizedBox(height: 12),
             MoneyField(controller: _amount),
             const SizedBox(height: 12),
-            DateField(
-                label: widget.bill == null ? 'First due date' : 'Next due date',
-                value: _due,
-                onChanged: (d) => setState(() => _due = d)),
-            const SizedBox(height: 12),
             DropdownButtonFormField<Repeat>(
               value: _repeat,
               decoration: const InputDecoration(labelText: 'Repeats'),
@@ -117,7 +145,66 @@ class _BillFormState extends State<BillForm> {
                 for (final r in Repeat.values)
                   DropdownMenuItem(value: r, child: Text(repeatLabel(r))),
               ],
-              onChanged: (v) => setState(() => _repeat = v ?? _repeat),
+              onChanged: (v) => setState(() {
+                _repeat = v ?? _repeat;
+                if (repeatsByMonth(_repeat) && _dueDay != kLastDay) {
+                  _dueDay = _due.day;
+                }
+              }),
+            ),
+            if (byMonth) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                value: _dueDay,
+                menuMaxHeight: 360,
+                decoration: InputDecoration(
+                  labelText: _repeat == Repeat.monthly
+                      ? 'Due every month on'
+                      : 'Due on day of the month',
+                ),
+                items: [
+                  for (var d = 1; d <= 31; d++)
+                    DropdownMenuItem(
+                        value: d, child: Text('The ${ordinal(d)}')),
+                  const DropdownMenuItem(
+                      value: kLastDay, child: Text('Last day of the month')),
+                ],
+                onChanged: (v) {
+                  if (v != null) _setDueDay(v);
+                },
+              ),
+              if (_dueDay >= 29 && _dueDay != kLastDay)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+                  child: Text(
+                    'In shorter months it moves to the last day, then returns to the ${ordinal(_dueDay)}.',
+                    style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant),
+                  ),
+                ),
+            ],
+            const SizedBox(height: 12),
+            DateField(
+                label: widget.bill == null ? 'First due date' : 'Next due date',
+                value: _due,
+                onChanged: _setDate),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final (i, d) in _upcoming().indexed)
+                  Chip(
+                    visualDensity: VisualDensity.compact,
+                    avatar: i == 0
+                        ? Icon(Icons.event_rounded, size: 16, color: cs.primary)
+                        : null,
+                    label: Text(Fmt.shortDate(d),
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight:
+                                i == 0 ? FontWeight.w700 : FontWeight.w500)),
+                  ),
+              ],
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<int>(

@@ -149,7 +149,7 @@ class BillTile extends StatelessWidget {
                   Text(
                     bill.active
                         ? '${dueLabel(days)} · ${Fmt.shortDate(bill.dueDate)}'
-                        : 'Paid · ${repeatLabel(bill.repeat)}',
+                        : 'Paid · ${bill.schedule}',
                     style: TextStyle(
                         color: bill.active
                             ? color
@@ -245,7 +245,7 @@ Future<void> showPaySheet(BuildContext context, Bill bill) async {
                         context,
                         bill.repeat == Repeat.none
                             ? '${bill.name} paid'
-                            : '${bill.name} paid · next due ${Fmt.shortDate(nextDue(bill.dueDate, bill.repeat))}');
+                            : '${bill.name} paid · next due ${Fmt.shortDate(bill.followingDue)}');
                   }
                 },
               ),
@@ -327,7 +327,7 @@ class BillDetail extends StatelessWidget {
                   runSpacing: 8,
                   alignment: WrapAlignment.center,
                   children: [
-                    Chip(label: Text(repeatLabel(b.repeat))),
+                    Chip(label: Text(b.schedule)),
                     Chip(label: Text(cat?.name ?? 'Uncategorized')),
                     Chip(
                         label: Text(b.remindDaysBefore == 0

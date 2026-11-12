@@ -23,15 +23,59 @@ String repeatLabel(Repeat r) {
   }
 }
 
-DateTime _addMonths(DateTime d, int months) {
-  final y = d.year + ((d.month - 1 + months) ~/ 12);
-  final m = (d.month - 1 + months) % 12 + 1;
-  final lastDay = DateTime(y, m + 1, 0).day;
-  final day = d.day > lastDay ? lastDay : d.day;
-  return DateTime(y, m, day, d.hour, d.minute);
+/// Special [Bill.dueDay] value meaning "last day of the month".
+const int kLastDay = 32;
+
+bool repeatsByMonth(Repeat r) =>
+    r == Repeat.monthly || r == Repeat.quarterly || r == Repeat.yearly;
+
+String ordinal(int n) {
+  if (n >= 11 && n <= 13) return '${n}th';
+  switch (n % 10) {
+    case 1:
+      return '${n}st';
+    case 2:
+      return '${n}nd';
+    case 3:
+      return '${n}rd';
+    default:
+      return '${n}th';
+  }
 }
 
-DateTime nextDue(DateTime d, Repeat r) {
+String dueDayLabel(int dueDay) =>
+    dueDay == kLastDay ? 'last day' : ordinal(dueDay);
+
+/// The date in [year]/[month] for a due day (1-31 or [kLastDay]),
+/// clamped to short months (e.g. the 31st becomes 30 Apr / 28 Feb).
+DateTime dateForDueDay(int year, int month, int dueDay) {
+  final lastDay = DateTime(year, month + 1, 0).day;
+  final day = dueDay >= lastDay ? lastDay : dueDay;
+  return DateTime(year, month, day, 9);
+}
+
+/// Next date (today or later) that falls on [dueDay] of a month.
+DateTime nextOccurrenceOfDay(int dueDay, [DateTime? from]) {
+  final now = from ?? DateTime.now();
+  final today = DateTime(now.year, now.month, now.day);
+  final thisMonth = dateForDueDay(now.year, now.month, dueDay);
+  if (!DateTime(thisMonth.year, thisMonth.month, thisMonth.day)
+      .isBefore(today)) {
+    return thisMonth;
+  }
+  return dateForDueDay(now.year, now.month + 1, dueDay);
+}
+
+DateTime _addMonths(DateTime d, int months, int dueDay) {
+  final target = DateTime(d.year, d.month + months);
+  return dateForDueDay(
+      target.year, target.month, dueDay > 0 ? dueDay : d.day);
+}
+
+/// Next due date after [d]. For monthly/quarterly/yearly bills the [dueDay]
+/// is kept every cycle, so a bill due on the 31st returns to the 31st after
+/// a short month instead of drifting to the 28th.
+DateTime nextDue(DateTime d, Repeat r, {int dueDay = 0}) {
   switch (r) {
     case Repeat.none:
       return d;
@@ -40,12 +84,18 @@ DateTime nextDue(DateTime d, Repeat r) {
     case Repeat.biweekly:
       return d.add(const Duration(days: 14));
     case Repeat.monthly:
-      return _addMonths(d, 1);
+      return _addMonths(d, 1, dueDay);
     case Repeat.quarterly:
-      return _addMonths(d, 3);
+      return _addMonths(d, 3, dueDay);
     case Repeat.yearly:
-      return _addMonths(d, 12);
+      return _addMonths(d, 12, dueDay);
   }
+}
+
+/// e.g. "Monthly on the 10th", "Quarterly on the last day".
+String scheduleLabel(Repeat r, int dueDay) {
+  if (!repeatsByMonth(r) || dueDay == 0) return repeatLabel(r);
+  return '${repeatLabel(r)} on the ${dueDayLabel(dueDay)}';
 }
 
 class TxCategory {
@@ -164,6 +214,7 @@ class Bill {
   final int? accountId;
   final DateTime dueDate;
   final Repeat repeat;
+  final int dueDay; // 1-31, kLastDay, or 0 = follow dueDate
   final int remindDaysBefore;
   final String notes;
   final bool active;
@@ -176,6 +227,7 @@ class Bill {
     this.accountId,
     required this.dueDate,
     this.repeat = Repeat.monthly,
+    this.dueDay = 0,
     this.remindDaysBefore = 2,
     this.notes = '',
     this.active = true,
@@ -189,6 +241,7 @@ class Bill {
         accountId: accountId,
         dueDate: dueDate ?? this.dueDate,
         repeat: repeat,
+        dueDay: dueDay,
         remindDaysBefore: remindDaysBefore,
         notes: notes,
         active: active ?? this.active,
@@ -202,6 +255,7 @@ class Bill {
         'account_id': accountId,
         'due_date': dueDate.millisecondsSinceEpoch,
         'repeat': repeat.index,
+        'due_day': dueDay,
         'remind_days': remindDaysBefore,
         'notes': notes,
         'active': active ? 1 : 0,
@@ -215,10 +269,15 @@ class Bill {
         accountId: m['account_id'] as int?,
         dueDate: DateTime.fromMillisecondsSinceEpoch(m['due_date'] as int),
         repeat: Repeat.values[m['repeat'] as int],
+        dueDay: (m['due_day'] as int?) ?? 0,
         remindDaysBefore: m['remind_days'] as int,
         notes: (m['notes'] as String?) ?? '',
         active: (m['active'] as int) == 1,
       );
+
+  String get schedule => scheduleLabel(repeat, dueDay);
+
+  DateTime get followingDue => nextDue(dueDate, repeat, dueDay: dueDay);
 
   int daysUntilDue(DateTime now) {
     final a = DateTime(now.year, now.month, now.day);
