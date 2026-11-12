@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -161,7 +162,9 @@ class _BillFormState extends State<BillForm> {
             ),
             const SizedBox(height: 8),
             Text(
-              'You\'ll get a notification at 9:00 AM ${_remind == 0 ? 'on the due date' : '$_remind day(s) before and on the due date'}. Next: ${Fmt.date(_due)}.',
+              kIsWeb
+                  ? 'Reminder notifications work in the iPhone/Android app. On the web, due bills show on Home and the Bills tab. Next: ${Fmt.date(_due)}.'
+                  : 'You\'ll get a notification at 9:00 AM ${_remind == 0 ? 'on the due date' : '$_remind day(s) before and on the due date'}. Next: ${Fmt.date(_due)}.',
               style: TextStyle(
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
                   fontSize: 12.5),

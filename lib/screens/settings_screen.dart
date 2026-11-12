@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -127,7 +128,9 @@ class SettingsScreen extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'Your data is stored only on this device. Nothing is sent to any server.',
+                  kIsWeb
+                      ? 'Your data is stored only in this browser. Nothing is sent to any server. Export a CSV regularly as a backup.'
+                      : 'Your data is stored only on this device. Nothing is sent to any server.',
                   style: TextStyle(
                       fontSize: 12.5,
                       color: Theme.of(context).colorScheme.onSurfaceVariant),

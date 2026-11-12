@@ -18,6 +18,10 @@ Every push to `main` runs **Actions → Build app** and publishes a **Release** 
 - `BillsO9Time.ipa` — iPhone. On your Mac: install [Sideloadly](https://sideloadly.io), plug in the iPhone, drag the `.ipa` in, sign in with your Apple ID, Start. On the iPhone: Settings → General → VPN & Device Management → trust your Apple ID; also turn on Settings → Privacy & Security → Developer Mode. Free Apple IDs must re-install every 7 days (your data is kept if you re-install over the existing app).
 - `BillsO9Time.apk` — Android. Open the release page on the phone, download, allow "Install unknown apps", install.
 
+### Web / PWA (additional option)
+
+Live at **https://aamirzia-code.github.io/bills-o9-time/** (deployed by the same workflow). On iPhone: open in Safari → Share → Add to Home Screen. Data is stored in that browser only (SQLite in WebAssembly + IndexedDB). Reminder notifications are app-only for now; web push needs the optional sync server on the roadmap.
+
 ## Develop locally (Mac)
 
 ```bash

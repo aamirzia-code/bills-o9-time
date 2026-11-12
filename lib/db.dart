@@ -1,5 +1,8 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
+
+import 'db_factory_stub.dart' if (dart.library.js_interop) 'db_factory_web.dart';
 
 import 'models.dart';
 
@@ -11,9 +14,13 @@ class AppDb {
   Future<Database> get db async => _db ??= await _open();
 
   Future<Database> _open() async {
-    final dir = await getDatabasesPath();
-    return openDatabase(
-      p.join(dir, 'bills_o9_time.db'),
+    final factory = appDatabaseFactory;
+    final path = kIsWeb
+        ? 'bills_o9_time.db'
+        : p.join(await factory.getDatabasesPath(), 'bills_o9_time.db');
+    return factory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
       version: 1,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, v) async {
@@ -60,6 +67,7 @@ class AppDb {
           CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)''');
         await _seed(db);
       },
+      ),
     );
   }
 

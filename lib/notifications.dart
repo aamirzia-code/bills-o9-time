@@ -25,6 +25,8 @@ class Notifier {
   );
 
   Future<void> init() async {
+    // Scheduled local notifications aren't available to web apps / PWAs.
+    if (kIsWeb) return;
     try {
       // Reminders are scheduled as absolute instants (UTC), so the device's
       // own time zone is applied automatically when the local time is built.

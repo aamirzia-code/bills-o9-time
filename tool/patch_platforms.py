@@ -89,6 +89,34 @@ def patch_ios():
         print("patched deployment target")
 
 
+def patch_web():
+    import json
+    man = ROOT / "web/manifest.json"
+    if man.exists():
+        m = json.loads(man.read_text())
+        m.update({
+            "name": APP_NAME,
+            "short_name": "Bills O9",
+            "description": "Bill organizer, expense tracker and budget planner",
+            "start_url": ".",
+            "display": "standalone",
+            "background_color": "#0F766E",
+            "theme_color": "#0F766E",
+            "orientation": "portrait",
+        })
+        man.write_text(json.dumps(m, indent=2))
+        print("patched manifest.json")
+    idx = ROOT / "web/index.html"
+    if idx.exists():
+        t = idx.read_text()
+        t = re.sub(r"<title>[^<]*</title>", f"<title>{APP_NAME}</title>", t)
+        t = re.sub(r'(name="apple-mobile-web-app-title" content=")[^"]*', rf"\g<1>Bills O9", t)
+        if 'name="theme-color"' not in t:
+            t = t.replace("</head>", '  <meta name="theme-color" content="#0F766E">\n</head>', 1)
+        idx.write_text(t)
+        print("patched index.html")
+
+
 if __name__ == "__main__":
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     if target in ("android", "all") and (ROOT / "android").exists():
@@ -96,3 +124,5 @@ if __name__ == "__main__":
         patch_manifest()
     if target in ("ios", "all") and (ROOT / "ios").exists():
         patch_ios()
+    if target in ("web", "all") and (ROOT / "web").exists():
+        patch_web()

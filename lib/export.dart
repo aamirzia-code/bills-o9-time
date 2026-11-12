@@ -1,8 +1,7 @@
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:share_plus/share_plus.dart';
@@ -19,11 +18,14 @@ class Exporter {
     return v;
   }
 
-  static Future<File> _write(String name, List<int> bytes) async {
-    final dir = await getTemporaryDirectory();
-    final f = File('${dir.path}/$name');
-    await f.writeAsBytes(bytes, flush: true);
-    return f;
+  /// Hands a generated file to the system share sheet (iOS/Android) or the
+  /// browser's share/download flow (web).
+  static Future<void> _share(
+      String name, List<int> bytes, String mime, String subject) async {
+    final file =
+        XFile.fromData(Uint8List.fromList(bytes), name: name, mimeType: mime);
+    await Share.shareXFiles([file],
+        subject: subject, fileNameOverrides: [name]);
   }
 
   /// All transactions as CSV (a full backup of your activity).
@@ -46,10 +48,11 @@ class Exporter {
     final stamp = month == null
         ? 'all'
         : DateFormat('yyyy-MM').format(month);
-    final f = await _write(
-        'bills-o9-transactions-$stamp.csv', [0xEF, 0xBB, 0xBF, ...utf8.encode(rows.join('\n'))]);
-    await Share.shareXFiles([XFile(f.path, mimeType: 'text/csv')],
-        subject: 'Bills O9 Time transactions');
+    await _share(
+        'bills-o9-transactions-$stamp.csv',
+        [0xEF, 0xBB, 0xBF, ...utf8.encode(rows.join('\n'))],
+        'text/csv',
+        'Bills O9 Time transactions');
   }
 
   static Future<void> shareMonthlyPdf(AppState s, DateTime month) async {
@@ -189,10 +192,10 @@ class Exporter {
       ],
     ));
 
-    final f = await _write(
+    await _share(
         'bills-o9-report-${DateFormat('yyyy-MM').format(month)}.pdf',
-        await doc.save());
-    await Share.shareXFiles([XFile(f.path, mimeType: 'application/pdf')],
-        subject: 'Bills O9 Time report ${Fmt.month(month)}');
+        await doc.save(),
+        'application/pdf',
+        'Bills O9 Time report ${Fmt.month(month)}');
   }
 }

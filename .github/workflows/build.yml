@@ -74,10 +74,56 @@ jobs:
           name: ios-ipa
           path: BillsO9Time.ipa
 
+  web:
+    name: Web / PWA
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - name: Generate platform folders
+        run: flutter create --platforms=web --org com.aatech --project-name bills_o9_time .
+      - run: flutter pub get
+      - name: SQLite for the browser
+        run: dart run sqflite_common_ffi_web:setup
+      - name: App icon
+        continue-on-error: true
+        run: dart run flutter_launcher_icons
+      - name: Patch PWA manifest
+        run: python3 tool/patch_platforms.py web
+      - name: Build web app
+        run: flutter build web --release --base-href /bills-o9-time/
+      - name: Package
+        run: cd build/web && zip -qr ../../BillsO9Time-web.zip .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-pwa
+          path: BillsO9Time-web.zip
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: build/web
+
+  pages:
+    name: Deploy PWA to GitHub Pages
+    needs: web
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
+
   release:
     name: Publish downloads
-    needs: [android, ios]
-    if: always() && (needs.android.result == 'success' || needs.ios.result == 'success')
+    needs: [android, ios, web]
+    if: always() && (needs.android.result == 'success' || needs.ios.result == 'success' || needs.web.result == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -93,4 +139,4 @@ jobs:
           gh release create "$TAG" dist/* \
             --repo "${{ github.repository }}" \
             --title "Bills O9 Time · build ${{ github.run_number }}" \
-            --notes "Android: download BillsO9Time.apk on your phone and install. iPhone: download BillsO9Time.ipa on your Mac and install with Sideloadly."
+            --notes "Android: download BillsO9Time.apk on your phone and install. iPhone: download BillsO9Time.ipa on your Mac and install with Sideloadly. Web/PWA: open https://aamirzia-code.github.io/bills-o9-time/ in Safari, then Share > Add to Home Screen."
