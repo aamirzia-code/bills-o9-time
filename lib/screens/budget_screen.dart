@@ -8,7 +8,8 @@ import '../widgets.dart';
 import 'transactions_screen.dart';
 
 class BudgetScreen extends StatefulWidget {
-  const BudgetScreen({super.key});
+  final bool embedded;
+  const BudgetScreen({super.key, this.embedded = false});
 
   @override
   State<BudgetScreen> createState() => _BudgetScreenState();
@@ -29,8 +30,9 @@ class _BudgetScreenState extends State<BudgetScreen> {
     final daysLeft = isCurrent ? daysInMonth - now.day + 1 : 0;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Budget')),
+      appBar: widget.embedded ? null : AppBar(title: const Text('Budget')),
       floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'budget-fab',
         onPressed: () => showBudgetSheet(context),
         icon: const Icon(Icons.add_rounded),
         label: const Text('Category budget'),

@@ -22,6 +22,8 @@ class _BillFormState extends State<BillForm> {
   late final TextEditingController _notes;
   late DateTime _due;
   late Repeat _repeat;
+  late int _every;
+  late bool _autoPay;
   late int _dueDay;
   late int _remind;
   int? _categoryId;
@@ -40,7 +42,10 @@ class _BillFormState extends State<BillForm> {
                 : b.amount.toString()));
     _notes = TextEditingController(text: b?.notes ?? '');
     _due = b?.dueDate ?? DateTime.now().add(const Duration(days: 7));
-    _repeat = b?.repeat ?? Repeat.monthly;
+    final (rep, every) = normalizeRepeat(b?.repeat ?? Repeat.monthly, b?.every ?? 1);
+    _repeat = rep;
+    _every = every;
+    _autoPay = b?.autoPay ?? false;
     _dueDay = (b != null && b.dueDay > 0) ? b.dueDay : _due.day;
     _remind = b?.remindDaysBefore ?? 2;
     _categoryId = b?.categoryId;
@@ -67,6 +72,8 @@ class _BillFormState extends State<BillForm> {
       dueDate: DateTime(_due.year, _due.month, _due.day, 9),
       repeat: _repeat,
       dueDay: repeatsByMonth(_repeat) ? _dueDay : 0,
+      every: _repeat == Repeat.none ? 1 : _every,
+      autoPay: _autoPay,
       remindDaysBefore: _remind,
       notes: _notes.text.trim(),
       active: true,
@@ -96,7 +103,8 @@ class _BillFormState extends State<BillForm> {
     if (_repeat == Repeat.none) return list;
     var d = _due;
     for (var i = 0; i < 3; i++) {
-      d = nextDue(d, _repeat, dueDay: repeatsByMonth(_repeat) ? _dueDay : 0);
+      d = nextDue(d, _repeat,
+          dueDay: repeatsByMonth(_repeat) ? _dueDay : 0, every: _every);
       list.add(d);
     }
     return list;
@@ -142,7 +150,7 @@ class _BillFormState extends State<BillForm> {
               value: _repeat,
               decoration: const InputDecoration(labelText: 'Repeats'),
               items: [
-                for (final r in Repeat.values)
+                for (final r in kRepeatChoices)
                   DropdownMenuItem(value: r, child: Text(repeatLabel(r))),
               ],
               onChanged: (v) => setState(() {
@@ -152,13 +160,46 @@ class _BillFormState extends State<BillForm> {
                 }
               }),
             ),
+            if (_repeat != Repeat.none) ...[
+              const SizedBox(height: 12),
+              InputDecorator(
+                decoration: const InputDecoration(labelText: 'Repeat every'),
+                child: Row(
+                  children: [
+                    IconButton.filledTonal(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.remove_rounded, size: 18),
+                      onPressed: _every > 1
+                          ? () => setState(() => _every--)
+                          : null,
+                    ),
+                    Expanded(
+                      child: Text(
+                        scheduleLabel(_repeat, 0, every: _every)
+                            .replaceFirst('Every ', ''),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 16),
+                      ),
+                    ),
+                    IconButton.filledTonal(
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      onPressed: _every < 36
+                          ? () => setState(() => _every++)
+                          : null,
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (byMonth) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
                 value: _dueDay,
                 menuMaxHeight: 360,
                 decoration: InputDecoration(
-                  labelText: _repeat == Repeat.monthly
+                  labelText: _repeat == Repeat.monthly && _every == 1
                       ? 'Due every month on'
                       : 'Due on day of the month',
                 ),
@@ -219,6 +260,20 @@ class _BillFormState extends State<BillForm> {
                 DropdownMenuItem(value: 7, child: Text('1 week before')),
               ],
               onChanged: (v) => setState(() => _remind = v ?? _remind),
+            ),
+            const SizedBox(height: 12),
+            Material(
+              color: cs.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(14),
+              child: SwitchListTile(
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                title: const Text('Auto Paid'),
+                subtitle: const Text(
+                    'Record the payment automatically on the due date (for auto-debit bills)'),
+                value: _autoPay,
+                onChanged: (v) => setState(() => _autoPay = v),
+              ),
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<int?>(

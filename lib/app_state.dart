@@ -17,7 +17,10 @@ class AppState extends ChangeNotifier {
   List<Goal> goals = [];
   List<GoalEntry> goalEntries = [];
   String currency = 'Rs';
-  ThemeMode themeMode = ThemeMode.system;
+  ThemeMode themeMode = ThemeMode.dark;
+  String userName = '';
+  double? incomeBudget;
+  bool _autoPayRan = false;
 
   Future<void> load() async {
     categories = (await _db.all('categories', orderBy: 'name'))
@@ -38,9 +41,49 @@ class AppState extends ChangeNotifier {
     currency = await _db.getSetting('currency') ?? 'Rs';
     Fmt.symbol = currency;
     final tm = await _db.getSetting('theme');
-    themeMode = ThemeMode.values[int.tryParse(tm ?? '') ?? 0];
+    themeMode = ThemeMode.values[int.tryParse(tm ?? '') ?? ThemeMode.dark.index];
+    userName = await _db.getSetting('name') ?? '';
+    incomeBudget = double.tryParse(await _db.getSetting('income_budget') ?? '');
     loaded = true;
     notifyListeners();
+    if (!_autoPayRan) {
+      _autoPayRan = true;
+      await runAutoPay();
+    }
+  }
+
+  /// Records payments for auto-paid bills whose due date has arrived.
+  Future<void> runAutoPay() async {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day, 23, 59);
+    var changed = false;
+    for (final b in bills.where((b) => b.active && b.autoPay)) {
+      var bill = b;
+      var guard = 0;
+      while (bill.active && !bill.dueDate.isAfter(today) && guard++ < 60) {
+        await _db.insert(
+            'txns',
+            Txn(
+              type: TxType.expense,
+              amount: bill.amount,
+              categoryId: bill.categoryId,
+              accountId: bill.accountId,
+              date: bill.dueDate,
+              note: bill.name,
+              billId: bill.id,
+              dueDate: bill.dueDate,
+            ).toMap());
+        bill = bill.recurring
+            ? bill.copyWith(dueDate: bill.followingDue)
+            : bill.copyWith(active: false);
+        changed = true;
+      }
+      if (!identical(bill, b)) {
+        await _db.update('bills', bill.toMap());
+        await Notifier.instance.scheduleBill(bill);
+      }
+    }
+    if (changed) await load();
   }
 
   // Lookups -------------------------------------------------------------------
@@ -81,6 +124,77 @@ class AppState extends ChangeNotifier {
       final d = b.daysUntilDue(now);
       return d >= 0 && d <= days;
     }).toList();
+  }
+
+  /// Payments recorded against bills, newest first.
+  List<Txn> get billPayments => txns.where((t) => t.billId != null).toList();
+
+  Txn? lastPayment(Bill b) {
+    for (final t in txns) {
+      if (t.billId == b.id) return t;
+    }
+    return null;
+  }
+
+  /// Change vs the last payment for this bill (positive = increased).
+  double? amountChange(Bill b) {
+    final last = lastPayment(b);
+    if (last == null) return null;
+    final diff = b.amount - last.amount;
+    return diff.abs() < 0.005 ? null : diff;
+  }
+
+  /// Upcoming (not overdue) due dates of all active bills up to [until].
+  List<BillDue> upcomingDues(DateTime until) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final out = <BillDue>[];
+    for (final b in activeBills) {
+      for (final d in b.occurrencesUntil(until)) {
+        if (DateTime(d.year, d.month, d.day).isBefore(today)) continue;
+        out.add(BillDue(b, d));
+      }
+    }
+    out.sort((a, b) => a.date.compareTo(b.date));
+    return out;
+  }
+
+  /// Unpaid amounts still due in [month] from today on.
+  double upcomingInMonth(DateTime month) {
+    final end = DateTime(month.year, month.month + 1, 0, 23, 59);
+    return upcomingDues(end)
+        .where((d) => d.date.year == month.year && d.date.month == month.month)
+        .fold(0.0, (s, d) => s + d.bill.amount);
+  }
+
+  double billsPaidInMonth(DateTime month) => billPayments
+      .where((t) => _sameMonth(t.date, month))
+      .fold(0.0, (s, t) => s + t.amount);
+
+  double get overdueTotal =>
+      overdueBills.fold(0.0, (s, b) => s + b.amount);
+
+  /// Total balance at the end of [month] (today's balance for this month).
+  double balanceAt(DateTime month) {
+    final end = DateTime(month.year, month.month + 1, 1);
+    var bal = totalBalance;
+    for (final t in txns) {
+      if (t.accountId == null || account(t.accountId) == null) continue;
+      if (!t.date.isBefore(end)) {
+        bal -= t.type == TxType.income ? t.amount : -t.amount;
+      }
+    }
+    return bal;
+  }
+
+  Map<int?, double> incomeByCategory(DateTime month) {
+    final map = <int?, double>{};
+    for (final t in txns) {
+      if (t.type == TxType.income && _sameMonth(t.date, month)) {
+        map[t.categoryId] = (map[t.categoryId] ?? 0) + t.amount;
+      }
+    }
+    return map;
   }
 
   bool _sameMonth(DateTime a, DateTime m) =>
@@ -186,6 +300,7 @@ class AppState extends ChangeNotifier {
           date: date,
           note: b.name,
           billId: b.id,
+          dueDate: b.dueDate,
         ).toMap());
     await _advanceBill(b);
   }
@@ -275,6 +390,18 @@ class AppState extends ChangeNotifier {
     await Notifier.instance.rescheduleAll(activeBills);
   }
 
+  Future<void> setUserName(String name) async {
+    await _db.setSetting('name', name.trim());
+    userName = name.trim();
+    notifyListeners();
+  }
+
+  Future<void> setIncomeBudget(double? v) async {
+    await _db.setSetting('income_budget', v?.toString() ?? '');
+    incomeBudget = v;
+    notifyListeners();
+  }
+
   Future<void> setTheme(ThemeMode m) async {
     await _db.setSetting('theme', m.index.toString());
     themeMode = m;
@@ -286,4 +413,13 @@ class AppState extends ChangeNotifier {
     await load();
     await Notifier.instance.rescheduleAll(const []);
   }
+}
+
+class BillDue {
+  final Bill bill;
+  final DateTime date;
+  const BillDue(this.bill, this.date);
+
+  /// True for the bill's current due date (the one that can be marked paid).
+  bool get isCurrent => date == bill.dueDate;
 }

@@ -20,10 +20,9 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final dark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: color ?? (dark ? const Color(0xFF14211F) : Colors.white),
-      borderRadius: BorderRadius.circular(18),
+      color: color ?? Theme.of(context).colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(16),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -280,4 +279,89 @@ void toast(BuildContext context, String msg) {
     ..hideCurrentSnackBar()
     ..showSnackBar(SnackBar(
         content: Text(msg), behavior: SnackBarBehavior.floating));
+}
+
+
+/// Small rounded label like "Increased by Rs9,300".
+class ChangeBadge extends StatelessWidget {
+  final double change; // positive = increased
+  const ChangeBadge(this.change, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final up = change > 0;
+    final color = up ? const Color(0xFFEF4444) : const Color(0xFF22C55E);
+    return Container(
+      margin: const EdgeInsets.only(top: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        border: Border.all(color: color.withOpacity(0.8)),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(up ? Icons.north_east_rounded : Icons.south_east_rounded,
+              size: 13, color: color),
+          const SizedBox(width: 4),
+          Text(
+            '${up ? 'Increased' : 'Reduced'} by ${Fmt.money(change.abs())}',
+            style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Month header row: "This month ........ Rs152,000".
+class GroupHeader extends StatelessWidget {
+  final String title;
+  final double? total;
+  const GroupHeader(this.title, {super.key, this.total});
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(4, 18, 4, 8),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(title,
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w800)),
+            ),
+            if (total != null)
+              Text(Fmt.money(total!),
+                  style: const TextStyle(
+                      fontSize: 16, fontWeight: FontWeight.w800)),
+          ],
+        ),
+      );
+}
+
+/// Rounded search field used on list screens.
+class SearchField extends StatelessWidget {
+  final ValueChanged<String> onChanged;
+  const SearchField({super.key, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: 42,
+        child: TextField(
+          onChanged: onChanged,
+          decoration: InputDecoration(
+            hintText: 'Search...',
+            prefixIcon: const Icon(Icons.search_rounded, size: 20),
+            contentPadding: EdgeInsets.zero,
+            fillColor: Theme.of(context).colorScheme.surfaceContainerHigh,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide.none,
+            ),
+          ),
+        ),
+      );
 }

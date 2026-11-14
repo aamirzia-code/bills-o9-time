@@ -28,8 +28,19 @@ const Map<String, IconData> kIcons = {
   'salary': Icons.payments_rounded,
   'business': Icons.work_rounded,
   'invest': Icons.trending_up_rounded,
+  'savings': Icons.savings_rounded,
+  'retire': Icons.chair_rounded,
+  'emergency': Icons.health_and_safety_rounded,
+  'debt': Icons.trending_down_rounded,
+  'milk': Icons.local_drink_rounded,
+  'cleaning': Icons.cleaning_services_rounded,
+  'bike': Icons.two_wheeler_rounded,
+  'cloud': Icons.cloud_rounded,
+  'committee': Icons.groups_rounded,
   'other': Icons.category_rounded,
 };
+
+const kBlue = Color(0xFF2F80ED);
 
 IconData iconFor(String key) => kIcons[key] ?? Icons.category_rounded;
 

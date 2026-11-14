@@ -2,14 +2,27 @@
 
 enum TxType { expense, income }
 
-enum Repeat { none, weekly, biweekly, monthly, quarterly, yearly }
+/// Stored by index in the database: only ever append new values.
+enum Repeat { none, weekly, biweekly, monthly, quarterly, yearly, daily }
 
 enum GoalKind { saving, debt }
+
+/// Repeat choices offered in the bill form. Legacy biweekly/quarterly are
+/// shown as "every 2 weeks" / "every 3 months".
+const kRepeatChoices = [
+  Repeat.none,
+  Repeat.daily,
+  Repeat.weekly,
+  Repeat.monthly,
+  Repeat.yearly,
+];
 
 String repeatLabel(Repeat r) {
   switch (r) {
     case Repeat.none:
       return 'One-time';
+    case Repeat.daily:
+      return 'Daily';
     case Repeat.weekly:
       return 'Weekly';
     case Repeat.biweekly:
@@ -21,6 +34,31 @@ String repeatLabel(Repeat r) {
     case Repeat.yearly:
       return 'Yearly';
   }
+}
+
+String _unit(Repeat r) {
+  switch (r) {
+    case Repeat.daily:
+      return 'Day';
+    case Repeat.weekly:
+    case Repeat.biweekly:
+      return 'Week';
+    case Repeat.monthly:
+    case Repeat.quarterly:
+      return 'Month';
+    case Repeat.yearly:
+      return 'Year';
+    case Repeat.none:
+      return '';
+  }
+}
+
+/// Converts legacy presets to a base unit + multiplier.
+(Repeat, int) normalizeRepeat(Repeat r, int every) {
+  final n = every < 1 ? 1 : every;
+  if (r == Repeat.biweekly) return (Repeat.weekly, 2 * n);
+  if (r == Repeat.quarterly) return (Repeat.monthly, 3 * n);
+  return (r, n);
 }
 
 /// Special [Bill.dueDay] value meaning "last day of the month".
@@ -72,30 +110,37 @@ DateTime _addMonths(DateTime d, int months, int dueDay) {
       target.year, target.month, dueDay > 0 ? dueDay : d.day);
 }
 
-/// Next due date after [d]. For monthly/quarterly/yearly bills the [dueDay]
-/// is kept every cycle, so a bill due on the 31st returns to the 31st after
-/// a short month instead of drifting to the 28th.
-DateTime nextDue(DateTime d, Repeat r, {int dueDay = 0}) {
-  switch (r) {
+/// Next due date after [d], repeating every [every] units of [r].
+/// For month-based bills the [dueDay] is kept every cycle, so a bill due on
+/// the 31st returns to the 31st after a short month instead of drifting.
+DateTime nextDue(DateTime d, Repeat r, {int dueDay = 0, int every = 1}) {
+  final (base, n) = normalizeRepeat(r, every);
+  switch (base) {
     case Repeat.none:
       return d;
+    case Repeat.daily:
+      return DateTime(d.year, d.month, d.day + n, d.hour, d.minute);
     case Repeat.weekly:
-      return d.add(const Duration(days: 7));
     case Repeat.biweekly:
-      return d.add(const Duration(days: 14));
+      return DateTime(d.year, d.month, d.day + 7 * n, d.hour, d.minute);
     case Repeat.monthly:
-      return _addMonths(d, 1, dueDay);
     case Repeat.quarterly:
-      return _addMonths(d, 3, dueDay);
+      return _addMonths(d, n, dueDay);
     case Repeat.yearly:
-      return _addMonths(d, 12, dueDay);
+      return _addMonths(d, 12 * n, dueDay);
   }
 }
 
-/// e.g. "Monthly on the 10th", "Quarterly on the last day".
-String scheduleLabel(Repeat r, int dueDay) {
-  if (!repeatsByMonth(r) || dueDay == 0) return repeatLabel(r);
-  return '${repeatLabel(r)} on the ${dueDayLabel(dueDay)}';
+/// e.g. "Every Month on 10th", "Every 3 Months on 1st", "Every 2 Days".
+String scheduleLabel(Repeat r, int dueDay, {int every = 1}) {
+  if (r == Repeat.none) return 'One-time';
+  final (base, n) = normalizeRepeat(r, every);
+  final unit = _unit(base);
+  final head = n == 1 ? 'Every $unit' : 'Every $n ${unit}s';
+  if (repeatsByMonth(base) && dueDay > 0) {
+    return '$head on ${dueDayLabel(dueDay)}';
+  }
+  return head;
 }
 
 class TxCategory {
@@ -171,6 +216,7 @@ class Txn {
   final DateTime date;
   final String note;
   final int? billId;
+  final DateTime? dueDate; // for bill payments: the due date that was paid
 
   const Txn({
     this.id,
@@ -181,6 +227,7 @@ class Txn {
     required this.date,
     this.note = '',
     this.billId,
+    this.dueDate,
   });
 
   Map<String, Object?> toMap() => {
@@ -192,6 +239,7 @@ class Txn {
         'date': date.millisecondsSinceEpoch,
         'note': note,
         'bill_id': billId,
+        'due_date': dueDate?.millisecondsSinceEpoch,
       };
 
   factory Txn.fromMap(Map<String, Object?> m) => Txn(
@@ -203,6 +251,9 @@ class Txn {
         date: DateTime.fromMillisecondsSinceEpoch(m['date'] as int),
         note: (m['note'] as String?) ?? '',
         billId: m['bill_id'] as int?,
+        dueDate: m['due_date'] == null
+            ? null
+            : DateTime.fromMillisecondsSinceEpoch(m['due_date'] as int),
       );
 }
 
@@ -215,6 +266,8 @@ class Bill {
   final DateTime dueDate;
   final Repeat repeat;
   final int dueDay; // 1-31, kLastDay, or 0 = follow dueDate
+  final int every; // repeat every N days/weeks/months/years
+  final bool autoPay; // record the payment automatically on the due date
   final int remindDaysBefore;
   final String notes;
   final bool active;
@@ -228,6 +281,8 @@ class Bill {
     required this.dueDate,
     this.repeat = Repeat.monthly,
     this.dueDay = 0,
+    this.every = 1,
+    this.autoPay = false,
     this.remindDaysBefore = 2,
     this.notes = '',
     this.active = true,
@@ -242,6 +297,8 @@ class Bill {
         dueDate: dueDate ?? this.dueDate,
         repeat: repeat,
         dueDay: dueDay,
+        every: every,
+        autoPay: autoPay,
         remindDaysBefore: remindDaysBefore,
         notes: notes,
         active: active ?? this.active,
@@ -256,6 +313,8 @@ class Bill {
         'due_date': dueDate.millisecondsSinceEpoch,
         'repeat': repeat.index,
         'due_day': dueDay,
+        'repeat_every': every,
+        'auto_pay': autoPay ? 1 : 0,
         'remind_days': remindDaysBefore,
         'notes': notes,
         'active': active ? 1 : 0,
@@ -270,14 +329,31 @@ class Bill {
         dueDate: DateTime.fromMillisecondsSinceEpoch(m['due_date'] as int),
         repeat: Repeat.values[m['repeat'] as int],
         dueDay: (m['due_day'] as int?) ?? 0,
+        every: (m['repeat_every'] as int?) ?? 1,
+        autoPay: ((m['auto_pay'] as int?) ?? 0) == 1,
         remindDaysBefore: m['remind_days'] as int,
         notes: (m['notes'] as String?) ?? '',
         active: (m['active'] as int) == 1,
       );
 
-  String get schedule => scheduleLabel(repeat, dueDay);
+  String get schedule => scheduleLabel(repeat, dueDay, every: every);
 
-  DateTime get followingDue => nextDue(dueDate, repeat, dueDay: dueDay);
+  bool get recurring => repeat != Repeat.none;
+
+  DateTime get followingDue =>
+      nextDue(dueDate, repeat, dueDay: dueDay, every: every);
+
+  /// This bill's due dates from the current one up to and including [until].
+  List<DateTime> occurrencesUntil(DateTime until, {int max = 120}) {
+    final out = <DateTime>[];
+    var d = dueDate;
+    while (!d.isAfter(until) && out.length < max) {
+      out.add(d);
+      if (!recurring) break;
+      d = nextDue(d, repeat, dueDay: dueDay, every: every);
+    }
+    return out;
+  }
 
   int daysUntilDue(DateTime now) {
     final a = DateTime(now.year, now.month, now.day);
@@ -314,6 +390,7 @@ class Goal {
   final double interestRate; // annual %, debts only
   final DateTime? deadline;
   final int color;
+  final String icon;
 
   const Goal({
     this.id,
@@ -323,6 +400,7 @@ class Goal {
     this.interestRate = 0,
     this.deadline,
     required this.color,
+    this.icon = '',
   });
 
   Map<String, Object?> toMap() => {
@@ -333,6 +411,7 @@ class Goal {
         'interest': interestRate,
         'deadline': deadline?.millisecondsSinceEpoch,
         'color': color,
+        'icon': icon,
       };
 
   factory Goal.fromMap(Map<String, Object?> m) => Goal(
@@ -345,7 +424,18 @@ class Goal {
             ? null
             : DateTime.fromMillisecondsSinceEpoch(m['deadline'] as int),
         color: m['color'] as int,
+        icon: (m['icon'] as String?) ?? '',
       );
+
+  /// Amount to put aside each month to finish by the deadline (0 if none).
+  double monthlyNeed(double done, [DateTime? now]) {
+    final left = target - done;
+    if (deadline == null || left <= 0) return 0;
+    final n = now ?? DateTime.now();
+    final months =
+        (deadline!.year - n.year) * 12 + deadline!.month - n.month;
+    return months <= 0 ? left : left / months;
+  }
 }
 
 class GoalEntry {

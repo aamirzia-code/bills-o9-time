@@ -21,7 +21,7 @@ class AppDb {
     return factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-      version: 2,
+      version: 3,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, v) async {
         await db.execute('''
@@ -41,6 +41,8 @@ class AppDb {
             category_id INTEGER, account_id INTEGER,
             due_date INTEGER NOT NULL, repeat INTEGER NOT NULL,
             due_day INTEGER NOT NULL DEFAULT 0,
+            repeat_every INTEGER NOT NULL DEFAULT 1,
+            auto_pay INTEGER NOT NULL DEFAULT 0,
             remind_days INTEGER NOT NULL DEFAULT 2,
             notes TEXT, active INTEGER NOT NULL DEFAULT 1)''');
         await db.execute('''
@@ -48,7 +50,8 @@ class AppDb {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             type INTEGER NOT NULL, amount REAL NOT NULL,
             category_id INTEGER, account_id INTEGER,
-            date INTEGER NOT NULL, note TEXT, bill_id INTEGER)''');
+            date INTEGER NOT NULL, note TEXT, bill_id INTEGER,
+            due_date INTEGER)''');
         await db.execute('''
           CREATE TABLE budgets(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -58,7 +61,7 @@ class AppDb {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL, kind INTEGER NOT NULL,
             target REAL NOT NULL, interest REAL NOT NULL DEFAULT 0,
-            deadline INTEGER, color INTEGER NOT NULL)''');
+            deadline INTEGER, color INTEGER NOT NULL, icon TEXT)''');
         await db.execute('''
           CREATE TABLE goal_entries(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,6 +84,18 @@ class AppDb {
             await db.update('bills', {'due_day': d.day},
                 where: 'id = ?', whereArgs: [r['id']]);
           }
+        }
+        if (oldV < 3) {
+          // v3: repeat every N, auto-paid bills, paid-for date, goal icons.
+          await db.execute('ALTER TABLE bills ADD COLUMN repeat_every INTEGER NOT NULL DEFAULT 1');
+          await db.execute('ALTER TABLE bills ADD COLUMN auto_pay INTEGER NOT NULL DEFAULT 0');
+          await db.execute('ALTER TABLE txns ADD COLUMN due_date INTEGER');
+          await db.execute('ALTER TABLE goals ADD COLUMN icon TEXT');
+          // Fold legacy presets into "every N" form.
+          await db.rawUpdate('UPDATE bills SET repeat = ?, repeat_every = 2 WHERE repeat = ?',
+              [Repeat.weekly.index, Repeat.biweekly.index]);
+          await db.rawUpdate('UPDATE bills SET repeat = ?, repeat_every = 3 WHERE repeat = ?',
+              [Repeat.monthly.index, Repeat.quarterly.index]);
         }
       },
       ),

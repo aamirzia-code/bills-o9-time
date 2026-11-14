@@ -7,7 +7,8 @@ import '../utils.dart';
 import '../widgets.dart';
 
 class GoalsScreen extends StatelessWidget {
-  const GoalsScreen({super.key});
+  final bool embedded;
+  const GoalsScreen({super.key, this.embedded = false});
 
   @override
   Widget build(BuildContext context) {
@@ -20,10 +21,11 @@ class GoalsScreen extends StatelessWidget {
         savings.fold<double>(0, (x, g) => x + s.goalProgress(g));
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Goals & Debts')),
+      appBar: embedded ? null : AppBar(title: const Text('Goals & Debts')),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const GoalForm())),
+        heroTag: 'goals-fab',
+        onPressed: () => Navigator.push(context,
+            MaterialPageRoute(builder: (_) => const GoalTemplatePicker())),
         icon: const Icon(Icons.add_rounded),
         label: const Text('New'),
       ),
@@ -126,7 +128,11 @@ class GoalTile extends StatelessWidget {
                       color: color.withOpacity(0.14),
                       borderRadius: BorderRadius.circular(13)),
                   child: Icon(
-                      isDebt ? Icons.trending_down_rounded : Icons.flag_rounded,
+                      g.icon.isNotEmpty
+                          ? iconFor(g.icon)
+                          : isDebt
+                              ? Icons.trending_down_rounded
+                              : Icons.flag_rounded,
                       color: color),
                 ),
                 const SizedBox(width: 12),
@@ -378,7 +384,8 @@ class GoalDetail extends StatelessWidget {
 
 class GoalForm extends StatefulWidget {
   final Goal? goal;
-  const GoalForm({super.key, this.goal});
+  final GoalTemplate? template;
+  const GoalForm({super.key, this.goal, this.template});
 
   @override
   State<GoalForm> createState() => _GoalFormState();
@@ -397,15 +404,20 @@ class _GoalFormState extends State<GoalForm> {
   void initState() {
     super.initState();
     final g = widget.goal;
-    _kind = g?.kind ?? GoalKind.saving;
-    _name = TextEditingController(text: g?.name ?? '');
+    final t = widget.template;
+    _kind = g?.kind ?? t?.kind ?? GoalKind.saving;
+    _icon = g?.icon ?? t?.icon ?? '';
+    _name = TextEditingController(
+        text: g?.name ?? (t == null || t.icon == 'other' ? '' : t.title));
     _target =
         TextEditingController(text: g == null ? '' : g.target.toStringAsFixed(0));
     _interest = TextEditingController(
         text: g == null || g.interestRate == 0 ? '' : g.interestRate.toString());
     _deadline = g?.deadline;
-    _color = g?.color ?? kPalette[0];
+    _color = g?.color ?? t?.color ?? kPalette[0];
   }
+
+  late String _icon;
 
   @override
   void dispose() {
@@ -436,6 +448,7 @@ class _GoalFormState extends State<GoalForm> {
                     interestRate: double.tryParse(_interest.text) ?? 0,
                     deadline: _deadline,
                     color: _color,
+                    icon: _icon,
                   ));
               if (context.mounted) Navigator.pop(context);
             },
@@ -542,6 +555,88 @@ class _GoalFormState extends State<GoalForm> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+class GoalTemplate {
+  final String title;
+  final String icon;
+  final GoalKind kind;
+  final int color;
+  const GoalTemplate(this.title, this.icon, this.kind, this.color);
+}
+
+const kGoalTemplates = [
+  GoalTemplate('Buy a home', 'home', GoalKind.saving, 0xFFEA580C),
+  GoalTemplate('Payoff debt', 'debt', GoalKind.debt, 0xFFDC2626),
+  GoalTemplate('Buy a car', 'car', GoalKind.saving, 0xFF2563EB),
+  GoalTemplate('Plan for retirement', 'retire', GoalKind.saving, 0xFF0891B2),
+  GoalTemplate('Plan a vacation', 'travel', GoalKind.saving, 0xFF16A34A),
+  GoalTemplate('Emergency fund', 'emergency', GoalKind.saving, 0xFF7C3AED),
+  GoalTemplate('Education', 'school', GoalKind.saving, 0xFFCA8A04),
+  GoalTemplate('Other', 'other', GoalKind.saving, 0xFF475569),
+];
+
+/// "What do you want to achieve?" grid shown before creating a goal.
+class GoalTemplatePicker extends StatelessWidget {
+  const GoalTemplatePicker({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Create Goal')),
+      body: ListView(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        children: [
+          Text('Setting a goal is the first step towards achieving it.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: cs.onSurfaceVariant)),
+          const SizedBox(height: 20),
+          const Text('What do you want to achieve?',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+          const SizedBox(height: 12),
+          GridView.count(
+            crossAxisCount: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            childAspectRatio: 1.15,
+            children: [
+              for (final t in kGoalTemplates)
+                AppCard(
+                  onTap: () => Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => GoalForm(template: t))),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        width: 56,
+                        height: 56,
+                        decoration: BoxDecoration(
+                          color: Color(t.color).withOpacity(0.16),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Icon(iconFor(t.icon),
+                            size: 28, color: Color(t.color)),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(t.title,
+                          textAlign: TextAlign.center,
+                          style:
+                              const TextStyle(fontWeight: FontWeight.w600)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
       ),
     );
   }

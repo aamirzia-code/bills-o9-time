@@ -59,8 +59,9 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Activity')),
+      appBar: AppBar(title: const Text('Transactions')),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'txn-fab',
         onPressed: () => openTxnForm(context),
         child: const Icon(Icons.add_rounded),
       ),

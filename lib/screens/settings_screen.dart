@@ -7,6 +7,7 @@ import '../export.dart';
 import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import 'accounts_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -24,6 +25,38 @@ class SettingsScreen extends StatelessWidget {
             padding: EdgeInsets.zero,
             child: Column(
               children: [
+                ListTile(
+                  leading: const Icon(Icons.person_outline_rounded),
+                  title: const Text('Your name'),
+                  trailing: Text(s.userName.isEmpty ? 'Add' : s.userName,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                  onTap: () async {
+                    final c = TextEditingController(text: s.userName);
+                    final v = await showDialog<String>(
+                      context: context,
+                      builder: (ctx) => AlertDialog(
+                        title: const Text('Your name'),
+                        content: TextField(
+                          controller: c,
+                          autofocus: true,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: const InputDecoration(
+                              hintText: 'Shown on the Home screen'),
+                        ),
+                        actions: [
+                          TextButton(
+                              onPressed: () => Navigator.pop(ctx),
+                              child: const Text('Cancel')),
+                          FilledButton(
+                              onPressed: () => Navigator.pop(ctx, c.text),
+                              child: const Text('Save')),
+                        ],
+                      ),
+                    );
+                    if (v != null) await s.setUserName(v);
+                  },
+                ),
+                const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.payments_rounded),
                   title: const Text('Currency'),
@@ -61,20 +94,20 @@ class SettingsScreen extends StatelessWidget {
                   ListTile(
                     leading: CircleAvatar(
                       backgroundColor: Color(a.color).withOpacity(0.15),
-                      child: Icon(_accountIcon(a.kind), color: Color(a.color)),
+                      child: Icon(accountIcon(a.kind), color: Color(a.color)),
                     ),
                     title: Text(a.name),
                     subtitle: Text(a.kind),
                     trailing: Text(Fmt.money(s.accountBalance(a)),
                         style: const TextStyle(fontWeight: FontWeight.w700)),
-                    onTap: () => _editAccount(context, a),
+                    onTap: () => showAccountSheet(context, a),
                   ),
                   const Divider(height: 1),
                 ],
                 ListTile(
                   leading: const Icon(Icons.add_rounded),
                   title: const Text('Add account'),
-                  onTap: () => _editAccount(context, null),
+                  onTap: () => showAccountSheet(context, null),
                 ),
               ],
             ),
@@ -150,19 +183,6 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
-  IconData _accountIcon(String kind) {
-    switch (kind) {
-      case 'Bank':
-        return Icons.account_balance_rounded;
-      case 'Card':
-        return Icons.credit_card_rounded;
-      case 'Wallet':
-        return Icons.account_balance_wallet_rounded;
-      default:
-        return Icons.payments_rounded;
-    }
-  }
-
   Future<void> _pickCurrency(BuildContext context) async {
     final s = context.read<AppState>();
     const options = ['Rs', 'PKR', 'AED', 'SAR', 'QAR', '\$', '£', '€', '₹', '¥'];
@@ -212,114 +232,6 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
           ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _editAccount(BuildContext context, Account? a) async {
-    final s = context.read<AppState>();
-    final name = TextEditingController(text: a?.name ?? '');
-    final opening = TextEditingController(
-        text: a == null ? '0' : a.openingBalance.toStringAsFixed(0));
-    var kind = a?.kind ?? 'Bank';
-    var color = a?.color ?? kPalette[1];
-    await showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      isScrollControlled: true,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setSt) => Padding(
-          padding: EdgeInsets.fromLTRB(
-              20, 0, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(a == null ? 'New account' : 'Edit account',
-                  style: const TextStyle(
-                      fontSize: 20, fontWeight: FontWeight.w800)),
-              const SizedBox(height: 16),
-              TextField(
-                controller: name,
-                textCapitalization: TextCapitalization.words,
-                decoration: const InputDecoration(
-                    labelText: 'Name', hintText: 'e.g. Meezan, JazzCash'),
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
-                value: kind,
-                decoration: const InputDecoration(labelText: 'Type'),
-                items: const [
-                  DropdownMenuItem(value: 'Cash', child: Text('Cash')),
-                  DropdownMenuItem(value: 'Bank', child: Text('Bank')),
-                  DropdownMenuItem(value: 'Card', child: Text('Card')),
-                  DropdownMenuItem(value: 'Wallet', child: Text('Wallet')),
-                ],
-                onChanged: (v) => setSt(() => kind = v ?? kind),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: opening,
-                keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true, signed: true),
-                decoration: InputDecoration(
-                    labelText: 'Opening balance',
-                    prefixText: '${Fmt.symbol} '),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                children: [
-                  for (final c in kPalette)
-                    GestureDetector(
-                      onTap: () => setSt(() => color = c),
-                      child: CircleAvatar(
-                        radius: 15,
-                        backgroundColor: Color(c),
-                        child: color == c
-                            ? const Icon(Icons.check,
-                                size: 16, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  if (a != null)
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () async {
-                          await s.deleteAccount(a);
-                          if (ctx.mounted) Navigator.pop(ctx);
-                        },
-                        child: const Text('Delete'),
-                      ),
-                    ),
-                  if (a != null) const SizedBox(width: 10),
-                  Expanded(
-                    flex: 2,
-                    child: FilledButton(
-                      onPressed: () async {
-                        if (name.text.trim().isEmpty) return;
-                        await s.saveAccount(Account(
-                          id: a?.id,
-                          name: name.text.trim(),
-                          kind: kind,
-                          openingBalance: double.tryParse(opening.text) ?? 0,
-                          color: color,
-                        ));
-                        if (ctx.mounted) Navigator.pop(ctx);
-                      },
-                      child: const Text('Save'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
         ),
       ),
     );
