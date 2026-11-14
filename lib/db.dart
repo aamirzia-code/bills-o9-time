@@ -11,7 +11,103 @@ class AppDb {
   static final AppDb instance = AppDb._();
   Database? _db;
 
-  Future<Database> get db async => _db ??= await _open();
+  Future<Database> get db async => _db ??= await _openAndMaybeDemo();
+
+  Future<Database> _openAndMaybeDemo() async {
+    final d = await _open();
+    // Web preview only: open the app with ?demo=1 to fill an empty database
+    // with sample data (used for screenshots and trying the app out).
+    if (kIsWeb && Uri.base.queryParameters['demo'] == '1') {
+      final n = Sqflite.firstIntValue(await d.rawQuery('SELECT COUNT(*) FROM bills'));
+      if ((n ?? 0) == 0) await _seedDemo(d);
+    }
+    return d;
+  }
+
+  Future<void> _seedDemo(Database d) async {
+    Future<int?> cat(String name) async {
+      final r = await d.query('categories', where: 'name = ?', whereArgs: [name], limit: 1);
+      return r.isEmpty ? null : r.first['id'] as int;
+    }
+    final now = DateTime.now();
+    DateTime on(int monthOffset, int day) =>
+        dateForDueDay(now.year, now.month + monthOffset, day);
+    final bank = (await d.query('accounts', where: 'kind = ?', whereArgs: ['Bank'], limit: 1)).first['id'] as int;
+    final cash = (await d.query('accounts', where: 'kind = ?', whereArgs: ['Cash'], limit: 1)).first['id'] as int;
+    await d.update('accounts', {'opening_balance': 250000}, where: 'id = ?', whereArgs: [bank]);
+    await d.update('accounts', {'opening_balance': 40000}, where: 'id = ?', whereArgs: [cash]);
+
+    final bills = [
+      // name, amount, category, day, monthOffset, every, autoPay, lastPaid
+      ['House Rent', 46000.0, 'Rent', 10, 1, 1, 0, 46000.0],
+      ['Electricity', 15000.0, 'Electricity', 24, 0, 1, 0, 5700.0],
+      ['Gas', 2500.0, 'Gas', 10, 1, 1, 0, 2500.0],
+      ['Internet', 3500.0, 'Internet', now.day + 2, 0, 2, 0, 3204.0],
+      ['Mobile Package', 1500.0, 'Mobile', 1, 1, 1, 1, 1500.0],
+      ['Credit Card', 100000.0, 'Credit Card', 27, 0, 1, 0, 55000.0],
+      ['School Fee', 37000.0, 'Education', 8, 1, 1, 0, 37000.0],
+      ['Car Installment', 18000.0, 'Loan / EMI', 5, 0, 1, 0, 18000.0],
+      ['Fuel Card', 12000.0, 'Fuel', now.day + 1, 0, 1, 0, 12000.0],
+      ['Cloud Storage', 2500.0, 'Subscriptions', 1, 1, 3, 1, 2500.0],
+    ];
+    for (final b in bills) {
+      var due = on(b[4] as int, b[3] as int);
+      if ((b[0] as String) == 'Car Installment') due = on(-1, 5); // overdue
+      final id = await d.insert('bills', {
+        'name': b[0], 'amount': b[1], 'category_id': await cat(b[2] as String),
+        'account_id': bank, 'due_date': due.millisecondsSinceEpoch,
+        'repeat': Repeat.monthly.index, 'due_day': (b[3] as int).clamp(1, 28),
+        'repeat_every': b[5], 'auto_pay': b[6], 'remind_days': 2, 'notes': '', 'active': 1,
+      });
+      final prevDue = DateTime(due.year, due.month - (b[5] as int), due.day, 9);
+      await d.insert('txns', {
+        'type': TxType.expense.index, 'amount': b[7], 'category_id': await cat(b[2] as String),
+        'account_id': bank, 'date': prevDue.add(const Duration(days: 1)).millisecondsSinceEpoch,
+        'note': b[0], 'bill_id': id, 'due_date': prevDue.millisecondsSinceEpoch,
+      });
+    }
+    final spends = [
+      ['Groceries', 'Weekly groceries', 9800.0, 2],
+      ['Food & Dining', 'Dinner out', 6500.0, 5],
+      ['Fuel', 'Petrol', 7000.0, 6],
+      ['Groceries', 'Milk & bread', 1800.0, 8],
+      ['Shopping', 'Clothes', 14500.0, 9],
+      ['Health', 'Pharmacy', 3200.0, 11],
+      ['Transport', 'Ride hailing', 2100.0, 12],
+    ];
+    for (var m = -5; m <= 0; m++) {
+      await d.insert('txns', {
+        'type': TxType.income.index, 'amount': 380000.0 + (m * 4000), 'category_id': await cat('Salary'),
+        'account_id': bank, 'date': on(m, 1).millisecondsSinceEpoch, 'note': 'Salary',
+      });
+      for (final x in spends) {
+        final day = x[3] as int;
+        if (m == 0 && day > now.day) continue;
+        await d.insert('txns', {
+          'type': TxType.expense.index,
+          'amount': (x[2] as double) * (1 + (m % 3) * 0.12),
+          'category_id': await cat(x[0] as String),
+          'account_id': day.isEven ? bank : cash,
+          'date': on(m, day).millisecondsSinceEpoch, 'note': x[1],
+        });
+      }
+    }
+    await d.insert('budgets', {'category_id': null, 'amount': 300000.0});
+    await d.insert('budgets', {'category_id': await cat('Groceries'), 'amount': 20000.0});
+    await d.insert('budgets', {'category_id': await cat('Food & Dining'), 'amount': 8000.0});
+    final g = await d.insert('goals', {
+      'name': 'Buy a car', 'kind': GoalKind.saving.index, 'target': 2500000.0, 'interest': 0,
+      'deadline': on(18, 1).millisecondsSinceEpoch, 'color': 0xFF2563EB, 'icon': 'car',
+    });
+    await d.insert('goal_entries', {'goal_id': g, 'amount': 600000.0, 'date': on(-2, 3).millisecondsSinceEpoch, 'note': ''});
+    final debt = await d.insert('goals', {
+      'name': 'Payoff debt', 'kind': GoalKind.debt.index, 'target': 300000.0, 'interest': 18,
+      'deadline': on(10, 1).millisecondsSinceEpoch, 'color': 0xFFDC2626, 'icon': 'debt',
+    });
+    await d.insert('goal_entries', {'goal_id': debt, 'amount': 90000.0, 'date': on(-1, 3).millisecondsSinceEpoch, 'note': ''});
+    await d.insert('settings', {'key': 'name', 'value': 'Aamir'},
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
   Future<Database> _open() async {
     final factory = appDatabaseFactory;
