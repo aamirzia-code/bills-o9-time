@@ -64,7 +64,8 @@ class Fmt {
     if (compact && v.abs() >= 100000) {
       return '$symbol ${NumberFormat.compact().format(v)}';
     }
-    final f = NumberFormat('#,##0.##');
+    // Whole amounts for anything over 100; paisa only for small values.
+    final f = NumberFormat(v.abs() >= 100 ? '#,##0' : '#,##0.##');
     return '$symbol ${f.format(v)}';
   }
 

@@ -152,6 +152,7 @@ class _BudgetSummaryState extends State<BudgetSummary> {
             Expanded(
                 child: Text(label,
                     style: TextStyle(color: cs.onSurfaceVariant))),
+            const SizedBox(width: 8),
             trailing,
           ],
         ),

@@ -2,14 +2,15 @@
 
 Personal bill organizer, expense tracker and budget planner (Flutter — iOS and Android from one codebase). All data stays on the device in a private SQLite database.
 
-## Features (v1)
+## Features
 
-- **Bills & reminders** — recurring bills (weekly, 2-weekly, monthly, quarterly, yearly, one-time), local notifications at 9 AM before and on the due date, mark paid / skip, payment history, overdue badge
-- **Expenses & income** — categories, accounts (cash, bank, card, wallet) with running balances, monthly view
-- **Budgets** — overall monthly limit with a safe-to-spend-per-day figure, per-category limits
-- **Reports** — 6-month income vs expenses, category breakdown, month-over-month change, savings rate; export monthly PDF report and CSV
-- **Goals & debts** — savings goals and debt payoff with progress, monthly amount needed to hit a date, interest estimate
-- Light / dark mode, any currency symbol (default `Rs`)
+- **Bills** — Upcoming / Overdue / Calendar / Recurring / Paid tabs with search and month totals; repeats daily, weekly, monthly or yearly, every N units, on a fixed day of the month; Auto Paid bills; "Increased/Reduced by" vs last payment; reminders before and on the due date; payment history
+- **Home** — spending this month with projection from bills still due, 2-week planner, missed-to-pay alert, monthly PDF report, recent transactions
+- **Budget** — monthly and category budgets, savings goals and debt payoff (with templates), Summary with income budget, allocation and remaining to allocate
+- **Accounts** — net worth over 3/6/12 months, accounts by type, monthly trends
+- **Insights** — spending and income distribution, month-over-month change, savings rate, 6-month income vs expenses; PDF/CSV export
+- Dark (default) and light themes, any currency symbol (default `Rs`)
+- Web preview with sample data: open the PWA with `?demo=1` on a browser that has no data yet
 
 ## Getting it on your phone
 

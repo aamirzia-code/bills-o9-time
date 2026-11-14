@@ -87,7 +87,7 @@ class AppDb {
           'type': TxType.expense.index,
           'amount': (x[2] as double) * (1 + (m % 3) * 0.12),
           'category_id': await cat(x[0] as String),
-          'account_id': day.isEven ? bank : cash,
+          'account_id': (x[2] as double) < 3000 ? cash : bank,
           'date': on(m, day).millisecondsSinceEpoch, 'note': x[1],
         });
       }

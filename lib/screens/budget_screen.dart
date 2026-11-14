@@ -31,11 +31,11 @@ class _BudgetScreenState extends State<BudgetScreen> {
 
     return Scaffold(
       appBar: widget.embedded ? null : AppBar(title: const Text('Budget')),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton(
         heroTag: 'budget-fab',
+        tooltip: 'Add category budget',
         onPressed: () => showBudgetSheet(context),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Category budget'),
+        child: const Icon(Icons.add_rounded, size: 28),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),

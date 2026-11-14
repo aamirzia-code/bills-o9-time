@@ -22,12 +22,12 @@ class GoalsScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: embedded ? null : AppBar(title: const Text('Goals & Debts')),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: FloatingActionButton(
         heroTag: 'goals-fab',
+        tooltip: 'New goal',
         onPressed: () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => const GoalTemplatePicker())),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('New'),
+        child: const Icon(Icons.add_rounded, size: 28),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 100),
