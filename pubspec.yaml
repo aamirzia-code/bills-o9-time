@@ -9,6 +9,8 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   provider: ^6.1.2
   sqflite: ^2.4.1
   sqflite_common_ffi_web: ^0.4.5
@@ -25,6 +27,7 @@ dependencies:
   crypto: ^3.0.5
   file_picker: ^8.1.4
   web: ^1.1.0
+  image_picker: ^1.1.2
 
 dev_dependencies:
   flutter_test:

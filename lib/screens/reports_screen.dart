@@ -7,7 +7,9 @@ import '../app_state.dart';
 import '../export.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import '../i18n.dart';
 import 'transactions_screen.dart';
+import '../features/share_summary.dart';
 
 const _green = Color(0xFF22C55E);
 const _orange = Color(0xFFF97316);
@@ -20,7 +22,7 @@ class ReportsScreen extends StatefulWidget {
 }
 
 class _ReportsScreenState extends State<ReportsScreen> {
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _month = context.read<AppState>().currentMonth;
   bool _busy = false;
 
   Future<void> _run(Future<void> Function() job) async {
@@ -51,7 +53,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Insights'),
+        title: Text(tr('Insights')),
         actions: [
           PopupMenuButton<String>(
             tooltip: 'Export',
@@ -62,7 +64,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.ios_share_rounded),
             onSelected: (v) {
-              if (v == 'pdf') {
+              if (v == 'share') {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (_) => ShareSummaryScreen(month: _month)));
+              } else if (v == 'pdf') {
                 _run(() => Exporter.shareMonthlyPdf(s, _month));
               } else if (v == 'csv') {
                 _run(() => Exporter.shareCsv(s, month: _month));
@@ -71,6 +78,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               }
             },
             itemBuilder: (_) => const [
+              PopupMenuItem(value: 'share', child: Text('Share summary image')),
               PopupMenuItem(value: 'pdf', child: Text('Monthly report (PDF)')),
               PopupMenuItem(value: 'csv', child: Text('This month (CSV)')),
               PopupMenuItem(value: 'all', child: Text('All transactions (CSV)')),

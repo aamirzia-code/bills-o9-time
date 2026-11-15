@@ -10,6 +10,9 @@ class Notifier {
   Notifier._();
   static final Notifier instance = Notifier._();
 
+  /// Hour of day for reminders (Settings → Notifications).
+  static int remindHour = 9;
+
   final _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
 
@@ -55,7 +58,8 @@ class Notifier {
     if (!_ready || b.id == null) return;
     await cancelBill(b.id!);
     if (!b.active) return;
-    final due = DateTime(b.dueDate.year, b.dueDate.month, b.dueDate.day, 9);
+    final due = DateTime(
+        b.dueDate.year, b.dueDate.month, b.dueDate.day, remindHour);
     final now = DateTime.now();
     final amount = Fmt.money(b.amount);
 

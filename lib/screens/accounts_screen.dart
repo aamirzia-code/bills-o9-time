@@ -7,6 +7,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import '../i18n.dart';
 import 'transactions_screen.dart';
 
 const _kinds = ['Cash', 'Bank', 'Card', 'Wallet'];
@@ -38,7 +39,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Accounts'),
+        title: Text(tr('Accounts')),
         actions: [
           IconButton(
             tooltip: 'Add account',

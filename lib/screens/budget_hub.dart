@@ -5,6 +5,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import '../i18n.dart';
 import 'budget_screen.dart';
 import 'goals_screen.dart';
 import 'transactions_screen.dart';
@@ -19,12 +20,12 @@ class BudgetHub extends StatelessWidget {
       length: 3,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('Budget'),
-          bottom: const TabBar(
+          title: Text(tr('Budget')),
+          bottom: TabBar(
             tabs: [
-              Tab(text: 'BUDGETS'),
-              Tab(text: 'GOALS'),
-              Tab(text: 'SUMMARY'),
+              Tab(text: tr('BUDGETS')),
+              Tab(text: tr('GOALS')),
+              Tab(text: tr('SUMMARY')),
             ],
           ),
         ),
@@ -48,7 +49,7 @@ class BudgetSummary extends StatefulWidget {
 }
 
 class _BudgetSummaryState extends State<BudgetSummary> {
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _month = context.read<AppState>().currentMonth;
 
   Future<void> _editIncome(AppState s, double suggested) async {
     final c = TextEditingController(

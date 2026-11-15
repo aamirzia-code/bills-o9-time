@@ -1,4 +1,6 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
@@ -6,6 +8,7 @@ import '../app_state.dart';
 import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import '../i18n.dart';
 import 'bill_form.dart';
 
 const _red = Color(0xFFEF4444);
@@ -37,9 +40,9 @@ int _daysFromToday(DateTime d) {
 String _monthGroupLabel(DateTime d) {
   final now = DateTime.now();
   final diff = (d.year - now.year) * 12 + d.month - now.month;
-  if (diff == 0) return 'This month';
-  if (diff == 1) return 'Next month';
-  if (diff == -1) return 'Last month';
+  if (diff == 0) return tr('This month');
+  if (diff == 1) return tr('Next month');
+  if (diff == -1) return tr('Last month');
   return d.year == now.year
       ? DateFormat('MMMM').format(d)
       : DateFormat('MMM yyyy').format(d);
@@ -74,18 +77,18 @@ class _BillsScreenState extends State<BillsScreen>
     final hasOverdue = s.overdueBills.isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Bills'),
+        title: Text(tr('Bills')),
         bottom: TabBar(
           controller: _tabs,
           isScrollable: true,
           tabAlignment: TabAlignment.start,
           tabs: [
-            const Tab(text: 'UPCOMING'),
+            Tab(text: tr('UPCOMING')),
             Tab(
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('OVERDUE'),
+                  Text(tr('OVERDUE')),
                   if (hasOverdue)
                     Container(
                       margin: const EdgeInsets.only(left: 4, bottom: 8),
@@ -97,9 +100,9 @@ class _BillsScreenState extends State<BillsScreen>
                 ],
               ),
             ),
-            const Tab(text: 'CALENDAR'),
-            const Tab(text: 'RECURRING'),
-            const Tab(text: 'PAID'),
+            Tab(text: tr('CALENDAR')),
+            Tab(text: tr('RECURRING')),
+            Tab(text: tr('PAID')),
           ],
         ),
       ),
@@ -995,7 +998,7 @@ class BillDetail extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Details'),
+        title: Text(tr('Details')),
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
@@ -1062,7 +1065,7 @@ class BillDetail extends StatelessWidget {
               ),
               onPressed: () => showPaySheet(context, b),
               icon: const Icon(Icons.check_rounded),
-              label: const Text('Mark Paid',
+              label: Text(tr('Mark Paid'),
                   style: TextStyle(fontWeight: FontWeight.w700)),
             ),
             if (b.recurring)
@@ -1084,6 +1087,37 @@ class BillDetail extends StatelessWidget {
                 Divider(height: 1, color: cs.outlineVariant),
                 row(Icons.account_balance_wallet_outlined, 'Pay from',
                     acc?.name ?? '—'),
+                if (b.refNo.isNotEmpty) ...[
+                  Divider(height: 1, color: cs.outlineVariant),
+                  InkWell(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: b.refNo));
+                      toast(context, 'Reference number copied');
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      child: Row(
+                        children: [
+                          Icon(Icons.tag_rounded,
+                              size: 20, color: cs.onSurfaceVariant),
+                          const SizedBox(width: 12),
+                          Text('Reference',
+                              style: TextStyle(color: cs.onSurfaceVariant)),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(b.refNo,
+                                textAlign: TextAlign.right,
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w600,
+                                    letterSpacing: 0.5)),
+                          ),
+                          const SizedBox(width: 8),
+                          const Icon(Icons.copy_rounded, size: 18, color: kBlue),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1109,6 +1143,7 @@ class BillDetail extends StatelessWidget {
             const SizedBox(height: 12),
             AppCard(child: Text(b.notes)),
           ],
+          if (payments.length >= 2) _BillHistoryChart(payments: payments),
           GroupHeader('Payment history',
               total: payments.isEmpty ? null : totalPaid),
           if (payments.isEmpty)
@@ -1139,6 +1174,112 @@ class BillDetail extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// Amount paid per cycle, oldest to newest, with a note on unusual jumps.
+class _BillHistoryChart extends StatelessWidget {
+  final List<Txn> payments; // newest first
+  const _BillHistoryChart({required this.payments});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final list = payments.take(12).toList().reversed.toList();
+    final maxY = list.map((t) => t.amount).reduce((a, b) => a > b ? a : b);
+    final prev = list.sublist(0, list.length - 1);
+    final avg = prev.fold<double>(0, (x, t) => x + t.amount) / prev.length;
+    final last = list.last.amount;
+    final jump = avg > 0 ? (last - avg) / avg : 0.0;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(left: 4),
+              child: Text('Bill history',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+            if (jump.abs() >= 0.25)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+                child: Text(
+                  'Last payment was ${(jump * 100).abs().round()}% ${jump > 0 ? 'higher' : 'lower'} than your average of ${Fmt.money(avg)}',
+                  style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w600,
+                      color: jump > 0 ? _red : _green),
+                ),
+              ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 140,
+              child: BarChart(
+                BarChartData(
+                  maxY: maxY * 1.2,
+                  gridData: const FlGridData(show: false),
+                  borderData: FlBorderData(show: false),
+                  barTouchData: BarTouchData(
+                    touchTooltipData: BarTouchTooltipData(
+                      getTooltipItem: (g, gi, rod, ri) => BarTooltipItem(
+                        Fmt.money(rod.toY),
+                        const TextStyle(
+                            color: Colors.white, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  titlesData: FlTitlesData(
+                    leftTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                        sideTitles: SideTitles(showTitles: false)),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 22,
+                        getTitlesWidget: (v, meta) {
+                          final i = v.toInt();
+                          if (i < 0 || i >= list.length) {
+                            return const SizedBox.shrink();
+                          }
+                          final d = list[i].dueDate ?? list[i].date;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(DateFormat('MMM').format(d),
+                                style: TextStyle(
+                                    fontSize: 10.5,
+                                    color: cs.onSurfaceVariant)),
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  barGroups: [
+                    for (var i = 0; i < list.length; i++)
+                      BarChartGroupData(x: i, barRods: [
+                        BarChartRodData(
+                          toY: list[i].amount,
+                          width: 14,
+                          color: i == list.length - 1
+                              ? cs.primary
+                              : cs.primary.withOpacity(0.45),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                      ]),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

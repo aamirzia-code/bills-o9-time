@@ -268,6 +268,7 @@ class Bill {
   final int dueDay; // 1-31, kLastDay, or 0 = follow dueDate
   final int every; // repeat every N days/weeks/months/years
   final bool autoPay; // record the payment automatically on the due date
+  final String refNo; // consumer / reference / card number
   final int remindDaysBefore;
   final String notes;
   final bool active;
@@ -283,6 +284,7 @@ class Bill {
     this.dueDay = 0,
     this.every = 1,
     this.autoPay = false,
+    this.refNo = '',
     this.remindDaysBefore = 2,
     this.notes = '',
     this.active = true,
@@ -299,6 +301,7 @@ class Bill {
         dueDay: dueDay,
         every: every,
         autoPay: autoPay,
+        refNo: refNo,
         remindDaysBefore: remindDaysBefore,
         notes: notes,
         active: active ?? this.active,
@@ -315,6 +318,7 @@ class Bill {
         'due_day': dueDay,
         'repeat_every': every,
         'auto_pay': autoPay ? 1 : 0,
+        'ref_no': refNo,
         'remind_days': remindDaysBefore,
         'notes': notes,
         'active': active ? 1 : 0,
@@ -331,6 +335,7 @@ class Bill {
         dueDay: (m['due_day'] as int?) ?? 0,
         every: (m['repeat_every'] as int?) ?? 1,
         autoPay: ((m['auto_pay'] as int?) ?? 0) == 1,
+        refNo: (m['ref_no'] as String?) ?? '',
         remindDaysBefore: m['remind_days'] as int,
         notes: (m['notes'] as String?) ?? '',
         active: (m['active'] as int) == 1,
@@ -468,4 +473,163 @@ class GoalEntry {
         date: DateTime.fromMillisecondsSinceEpoch(m['date'] as int),
         note: (m['note'] as String?) ?? '',
       );
+}
+
+/// Rotating savings committee (BC / ROSCA): everyone pays a share each
+/// month and one member takes the whole pot in turn.
+class Committee {
+  final int? id;
+  final String name;
+  final double share; // per member per round
+  final DateTime start; // first round's due date
+  final List<String> members; // in payout order
+  final int myTurn; // 1-based round when I receive the pot
+  final Set<String> paid; // "round:memberIndex"
+  final Set<int> payouts; // rounds whose pot has been handed over
+  final int color;
+  final String notes;
+
+  const Committee({
+    this.id,
+    required this.name,
+    required this.share,
+    required this.start,
+    required this.members,
+    this.myTurn = 1,
+    this.paid = const {},
+    this.payouts = const {},
+    required this.color,
+    this.notes = '',
+  });
+
+  int get rounds => members.length;
+  double get pot => share * members.length;
+
+  DateTime roundDate(int round) =>
+      DateTime(start.year, start.month + round - 1, start.day, 9);
+
+  int currentRound([DateTime? at]) {
+    final n = at ?? DateTime.now();
+    final r = (n.year - start.year) * 12 + n.month - start.month + 1;
+    return r.clamp(1, rounds < 1 ? 1 : rounds);
+  }
+
+  bool get finished =>
+      rounds > 0 && DateTime.now().isAfter(roundDate(rounds).add(const Duration(days: 31)));
+
+  bool isPaid(int round, int member) => paid.contains('$round:$member');
+
+  int paidCount(int round) =>
+      [for (var m = 0; m < rounds; m++) if (isPaid(round, m)) m].length;
+
+  Committee copyWith({Set<String>? paid, Set<int>? payouts}) => Committee(
+        id: id,
+        name: name,
+        share: share,
+        start: start,
+        members: members,
+        myTurn: myTurn,
+        paid: paid ?? this.paid,
+        payouts: payouts ?? this.payouts,
+        color: color,
+        notes: notes,
+      );
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'name': name,
+        'share': share,
+        'start': start.millisecondsSinceEpoch,
+        'members': members.join('\n'),
+        'my_turn': myTurn,
+        'paid': (paid.toList()..sort()).join(','),
+        'payouts': (payouts.toList()..sort()).join(','),
+        'color': color,
+        'notes': notes,
+      };
+
+  factory Committee.fromMap(Map<String, Object?> m) {
+    Set<String> split(Object? v) => ((v as String?) ?? '')
+        .split(',')
+        .where((e) => e.isNotEmpty)
+        .toSet();
+    return Committee(
+      id: m['id'] as int,
+      name: m['name'] as String,
+      share: (m['share'] as num).toDouble(),
+      start: DateTime.fromMillisecondsSinceEpoch(m['start'] as int),
+      members: ((m['members'] as String?) ?? '')
+          .split('\n')
+          .where((e) => e.trim().isNotEmpty)
+          .toList(),
+      myTurn: (m['my_turn'] as int?) ?? 1,
+      paid: split(m['paid']),
+      payouts: split(m['payouts']).map(int.parse).toSet(),
+      color: m['color'] as int,
+      notes: (m['notes'] as String?) ?? '',
+    );
+  }
+}
+
+class SeasonItem {
+  final int? categoryId;
+  final String name;
+  final double planned;
+  const SeasonItem(this.categoryId, this.name, this.planned);
+}
+
+/// A dated spending plan, e.g. Ramadan & Eid.
+class SeasonPlan {
+  final int? id;
+  final String name;
+  final DateTime start;
+  final DateTime end;
+  final List<SeasonItem> items;
+
+  const SeasonPlan({
+    this.id,
+    required this.name,
+    required this.start,
+    required this.end,
+    required this.items,
+  });
+
+  double get planned => items.fold(0.0, (s, i) => s + i.planned);
+
+  bool contains(DateTime d) =>
+      !d.isBefore(DateTime(start.year, start.month, start.day)) &&
+      d.isBefore(DateTime(end.year, end.month, end.day + 1));
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'name': name,
+        'start': start.millisecondsSinceEpoch,
+        'end_date': end.millisecondsSinceEpoch,
+        'items': [
+          for (final i in items) '${i.categoryId ?? ''}|${i.planned}|${i.name.replaceAll('|', '/')}'
+        ].join('\n'),
+      };
+
+  factory SeasonPlan.fromMap(Map<String, Object?> m) => SeasonPlan(
+        id: m['id'] as int,
+        name: m['name'] as String,
+        start: DateTime.fromMillisecondsSinceEpoch(m['start'] as int),
+        end: DateTime.fromMillisecondsSinceEpoch(m['end_date'] as int),
+        items: [
+          for (final line in ((m['items'] as String?) ?? '').split('\n'))
+            if (line.split('|').length >= 3)
+              SeasonItem(
+                int.tryParse(line.split('|')[0]),
+                line.split('|').sublist(2).join('|'),
+                double.tryParse(line.split('|')[1]) ?? 0,
+              ),
+        ],
+      );
+}
+
+class Attachment {
+  final int id;
+  final int txnId;
+  final DateTime created;
+  const Attachment(this.id, this.txnId, this.created);
 }

@@ -60,7 +60,11 @@ const List<int> kPalette = [
 class Fmt {
   static String symbol = 'Rs';
 
+  /// "Hide amounts" privacy mode.
+  static bool hidden = false;
+
   static String money(double v, {bool compact = false}) {
+    if (hidden) return '$symbol ••••';
     if (compact && v.abs() >= 100000) {
       return '$symbol ${NumberFormat.compact().format(v)}';
     }

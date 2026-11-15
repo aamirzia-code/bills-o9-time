@@ -117,7 +117,7 @@ class AppDb {
     return factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-      version: 3,
+      version: 4,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, v) async {
         await db.execute('''
@@ -140,6 +140,7 @@ class AppDb {
             repeat_every INTEGER NOT NULL DEFAULT 1,
             auto_pay INTEGER NOT NULL DEFAULT 0,
             remind_days INTEGER NOT NULL DEFAULT 2,
+            ref_no TEXT,
             notes TEXT, active INTEGER NOT NULL DEFAULT 1)''');
         await db.execute('''
           CREATE TABLE txns(
@@ -165,6 +166,7 @@ class AppDb {
             amount REAL NOT NULL, date INTEGER NOT NULL, note TEXT)''');
         await db.execute('''
           CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)''');
+        await _createV4(db);
         await _seed(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -193,9 +195,32 @@ class AppDb {
           await db.rawUpdate('UPDATE bills SET repeat = ?, repeat_every = 3 WHERE repeat = ?',
               [Repeat.monthly.index, Repeat.quarterly.index]);
         }
+        if (oldV < 4) {
+          await db.execute('ALTER TABLE bills ADD COLUMN ref_no TEXT');
+          await _createV4(db);
+        }
       },
       ),
     );
+  }
+
+  /// v4: committees, seasonal plans and receipt photos.
+  static Future<void> _createV4(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS committees(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, share REAL NOT NULL, start INTEGER NOT NULL,
+        members TEXT NOT NULL, my_turn INTEGER NOT NULL DEFAULT 1,
+        paid TEXT, payouts TEXT, color INTEGER NOT NULL, notes TEXT)''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS seasons(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL, start INTEGER NOT NULL, end_date INTEGER NOT NULL,
+        items TEXT NOT NULL)''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS attachments(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        txn_id INTEGER NOT NULL, data TEXT NOT NULL, created INTEGER NOT NULL)''');
   }
 
   Future<void> _seed(Database db) async {
@@ -280,6 +305,20 @@ class AppDb {
     await (await db).delete(table, where: 'id = ?', whereArgs: [id]);
   }
 
+  Future<List<Map<String, Object?>>> attachmentIndex() async =>
+      (await db).query('attachments',
+          columns: ['id', 'txn_id', 'created'], orderBy: 'id');
+
+  Future<String?> attachmentData(int id) async {
+    final r = await (await db).query('attachments',
+        columns: ['data'], where: 'id = ?', whereArgs: [id], limit: 1);
+    return r.isEmpty ? null : r.first['data'] as String?;
+  }
+
+  Future<void> deleteWhere(String table, String where, List<Object?> args) async {
+    await (await db).delete(table, where: where, whereArgs: args);
+  }
+
   Future<String?> getSetting(String key) async {
     final r = await (await db)
         .query('settings', where: 'key = ?', whereArgs: [key], limit: 1);
@@ -300,6 +339,9 @@ class AppDb {
     'budgets',
     'goals',
     'goal_entries',
+    'committees',
+    'seasons',
+    'attachments',
     'settings',
   ];
 
@@ -329,7 +371,7 @@ class AppDb {
     }
     return {
       'v': 1,
-      'db': 3,
+      'db': 4,
       'at': DateTime.now().toUtc().toIso8601String(),
       't': tables,
     };
@@ -374,7 +416,7 @@ class AppDb {
 
   Future<void> wipe() async {
     final d = await db;
-    for (final t in ['txns', 'bills', 'budgets', 'goal_entries', 'goals']) {
+    for (final t in ['attachments', 'txns', 'bills', 'budgets', 'goal_entries', 'goals', 'committees', 'seasons']) {
       await d.delete(t);
     }
   }

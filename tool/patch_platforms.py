@@ -111,6 +111,8 @@ def patch_web():
         t = idx.read_text()
         t = re.sub(r"<title>[^<]*</title>", f"<title>{APP_NAME}</title>", t)
         t = re.sub(r'(name="apple-mobile-web-app-title" content=")[^"]*', rf"\g<1>Bills O9", t)
+        if 'passkey.js' not in t:
+            t = t.replace("</head>", '  <script src="passkey.js"></script>\n</head>', 1)
         if 'name="theme-color"' not in t:
             t = t.replace("</head>", '  <meta name="theme-color" content="#0F766E">\n</head>', 1)
         idx.write_text(t)

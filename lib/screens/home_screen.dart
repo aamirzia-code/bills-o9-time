@@ -12,6 +12,12 @@ import '../widgets.dart';
 import '../sync/cloud_providers.dart';
 import '../sync/sync_service.dart';
 import 'backup_screen.dart';
+import '../features/alerts.dart';
+import '../features/committees.dart';
+import '../features/currency.dart';
+import '../features/seasons.dart';
+import '../features/zakat.dart';
+import '../i18n.dart';
 import 'bill_form.dart';
 import 'settings_screen.dart';
 import 'transactions_screen.dart';
@@ -26,9 +32,9 @@ class HomeScreen extends StatelessWidget {
 
   String _greeting() {
     final h = DateTime.now().hour;
-    if (h < 12) return 'Good morning!';
-    if (h < 17) return 'Good afternoon!';
-    return 'Good evening!';
+    if (h < 12) return tr('Good morning!');
+    if (h < 17) return tr('Good afternoon!');
+    return tr('Good evening!');
   }
 
   @override
@@ -55,7 +61,7 @@ class HomeScreen extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Hi $name',
+                Text('${tr('Hi')} $name',
                     style: const TextStyle(
                         fontSize: 16, fontWeight: FontWeight.w800)),
                 Text(_greeting(),
@@ -69,11 +75,26 @@ class HomeScreen extends StatelessWidget {
         ),
         actions: [
           IconButton(
-            tooltip: 'Search transactions',
-            icon: const Icon(Icons.search_rounded),
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => const TransactionsScreen())),
+            tooltip: 'Hide amounts',
+            icon: Icon(s.pref<bool>('hideAmounts', false)
+                ? Icons.visibility_off_outlined
+                : Icons.visibility_outlined),
+            onPressed: () =>
+                s.setPref('hideAmounts', !s.pref<bool>('hideAmounts', false)),
           ),
+          Builder(builder: (context) {
+            final n = computeAlerts(s).length;
+            return IconButton(
+              tooltip: tr('Alerts'),
+              icon: Badge(
+                isLabelVisible: n > 0,
+                label: Text('$n'),
+                child: const Icon(Icons.notifications_none_rounded),
+              ),
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => const AlertsScreen())),
+            );
+          }),
           IconButton(
             tooltip: 'Settings',
             icon: const Icon(Icons.settings_outlined),
@@ -93,12 +114,14 @@ class HomeScreen extends StatelessWidget {
           const _BackupNudge(),
           _SpendingCard(onNavigate: onNavigate),
           const SizedBox(height: 12),
+          const _ToolsRow(),
+          const SizedBox(height: 12),
           _PlannerCard(onNavigate: onNavigate),
           const SizedBox(height: 12),
           const _ReportCard(),
           if (s.txns.isNotEmpty) ...[
-            SectionTitle('Transactions',
-                action: 'View all',
+            SectionTitle(tr('Transactions'),
+                action: tr('View all'),
                 onAction: () => Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -142,9 +165,13 @@ Future<void> showAddSheet(BuildContext context) => showModalBottomSheet(
                   Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const BillForm()));
                 }),
-                item(Icons.north_east_rounded, _red, 'Expense',
+                item(Icons.north_east_rounded, _red, tr('Expense'),
                     'Something you spent',
                     () => openTxnForm(context, type: TxType.expense)),
+                item(Icons.sms_outlined, const Color(0xFF8B5CF6),
+                    tr('Paste bank SMS'),
+                    'Copy a bank or wallet alert and paste it',
+                    () => openTxnForm(context, pasteSms: true)),
                 item(Icons.south_west_rounded, const Color(0xFF22C55E),
                     'Income', 'Salary, business or other income',
                     () => openTxnForm(context, type: TxType.income)),
@@ -166,35 +193,40 @@ class _SpendingCard extends StatelessWidget {
     final s = context.watch<AppState>();
     final cs = Theme.of(context).colorScheme;
     final now = DateTime.now();
-    final month = DateTime(now.year, now.month);
-    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final month = s.currentMonth;
+    final start = s.periodStart(month);
+    final daysInMonth = s.periodEnd(month).difference(start).inDays;
+    final todayIdx =
+        DateTime(now.year, now.month, now.day).difference(start).inDays + 1;
+    int idx(DateTime d) =>
+        DateTime(d.year, d.month, d.day).difference(start).inDays + 1;
     final spent = s.expenseInMonth(month);
 
     // Cumulative spending per day so far.
-    final perDay = List<double>.filled(daysInMonth + 1, 0);
+    final perDay = List<double>.filled(daysInMonth + 2, 0);
     for (final t in s.txnsInMonth(month)) {
-      if (t.type == TxType.expense) perDay[t.date.day] += t.amount;
+      if (t.type == TxType.expense) {
+        perDay[idx(t.date).clamp(1, daysInMonth)] += t.amount;
+      }
     }
     final actual = <FlSpot>[const FlSpot(1, 0)];
     var run = 0.0;
-    for (var d = 1; d <= now.day; d++) {
+    for (var d = 1; d <= todayIdx; d++) {
       run += perDay[d];
       actual.add(FlSpot(d.toDouble(), run));
     }
 
-    // Projection = spent so far + bills still due this month, on their dates.
-    final end = DateTime(now.year, now.month + 1, 0, 23, 59);
-    final dues = s.upcomingDues(end)
-        .where((d) => d.date.month == now.month && d.date.year == now.year)
-        .toList();
-    final projected = <FlSpot>[FlSpot(now.day.toDouble(), run)];
+    // Projection = spent so far + bills still due this period, on their dates.
+    final end = s.periodEnd(month).subtract(const Duration(minutes: 1));
+    final dues = s.upcomingDues(end).where((d) => s.inPeriod(d.date, month)).toList();
+    final projected = <FlSpot>[FlSpot(todayIdx.toDouble(), run)];
     var proj = run;
     final dueByDay = <int, double>{};
     for (final d in dues) {
-      dueByDay[d.date.day] = (dueByDay[d.date.day] ?? 0) + d.bill.amount;
+      dueByDay[idx(d.date)] = (dueByDay[idx(d.date)] ?? 0) + d.bill.amount;
     }
-    for (var d = now.day; d <= daysInMonth; d++) {
-      if (d > now.day || (dueByDay[d] ?? 0) > 0) {
+    for (var d = todayIdx; d <= daysInMonth; d++) {
+      if (d > todayIdx || (dueByDay[d] ?? 0) > 0) {
         proj += dueByDay[d] ?? 0;
         projected.add(FlSpot(d.toDouble(), proj));
       }
@@ -208,7 +240,7 @@ class _SpendingCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text('Spending in ${Fmt.month(month).split(' ').first}',
+              Text('${tr('Spending in')} ${Fmt.month(month).split(' ').first}',
                   style: const TextStyle(fontWeight: FontWeight.w700)),
               const Spacer(),
               Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
@@ -218,12 +250,50 @@ class _SpendingCard extends StatelessWidget {
           Text(Fmt.money(spent),
               style:
                   const TextStyle(fontSize: 30, fontWeight: FontWeight.w800)),
+          if (altMoney(s, spent) != null)
+            Text(altMoney(s, spent)!,
+                style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant)),
           Text(
             proj > spent
                 ? 'Projected ${Fmt.money(proj)} with bills still due'
                 : 'No more bills due this month',
             style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant),
           ),
+          if (s.incomeBudget != null || s.incomeInMonth(month) > 0) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: (s.safeToSpendToday >= 0
+                        ? const Color(0xFF22C55E)
+                        : _red)
+                    .withOpacity(0.14),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text.rich(
+                TextSpan(children: [
+                  TextSpan(
+                      text: s.safeToSpendToday >= 0
+                          ? '${tr('Safe to spend today')} '
+                          : 'Over plan by ',
+                      style: TextStyle(color: cs.onSurfaceVariant)),
+                  TextSpan(
+                      text: Fmt.money(s.safeToSpendToday.abs()),
+                      style: TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: s.safeToSpendToday >= 0
+                              ? const Color(0xFF22C55E)
+                              : _red)),
+                  TextSpan(
+                      text: s.safeToSpendToday >= 0
+                          ? ' · ${s.daysLeftInPeriod} days left'
+                          : ' per day',
+                      style: TextStyle(color: cs.onSurfaceVariant)),
+                ]),
+                style: const TextStyle(fontSize: 12.5),
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           if (spent == 0 && dues.isEmpty)
             Column(
@@ -272,7 +342,8 @@ class _SpendingCard extends StatelessWidget {
                           if (d != 1 && d != 10 && d != 20 && d != daysInMonth) {
                             return const SizedBox.shrink();
                           }
-                          return Text('$d',
+                          final day = start.add(Duration(days: d - 1)).day;
+                          return Text('$day',
                               style: TextStyle(
                                   fontSize: 10.5, color: cs.onSurfaceVariant));
                         },
@@ -349,7 +420,7 @@ class _PlannerCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Text('Planner',
+              Text(tr('Planner'),
                   style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
               const Spacer(),
               Icon(Icons.chevron_right_rounded, color: cs.onSurfaceVariant),
@@ -630,6 +701,53 @@ class _BackupNudge extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+
+/// Quick shortcuts to the money tools.
+class _ToolsRow extends StatelessWidget {
+  const _ToolsRow();
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    Widget tool(IconData icon, Color color, String label, Widget Function() page) =>
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: AppCard(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              onTap: () => Navigator.push(
+                  context, MaterialPageRoute(builder: (_) => page())),
+              child: Column(
+                children: [
+                  Icon(icon, color: color),
+                  const SizedBox(height: 6),
+                  Text(label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: cs.onSurface)),
+                ],
+              ),
+            ),
+          ),
+        );
+    return Row(
+      children: [
+        tool(Icons.groups_rounded, const Color(0xFF7C3AED), tr('Committees'),
+            () => const CommitteesScreen()),
+        tool(Icons.volunteer_activism_rounded, const Color(0xFF16A34A),
+            tr('Zakat'), () => const ZakatScreen()),
+        tool(Icons.nightlight_round, const Color(0xFFF5B000),
+            tr('Ramadan & Eid'), () => const SeasonsScreen()),
+        tool(Icons.sms_outlined, kBlue, 'SMS',
+            () => const TxnForm(pasteSms: true)),
+      ],
     );
   }
 }

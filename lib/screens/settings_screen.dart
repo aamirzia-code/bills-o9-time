@@ -12,6 +12,13 @@ import '../sync/cloud_providers.dart';
 import '../sync/sync_service.dart';
 import 'accounts_screen.dart';
 import 'backup_screen.dart';
+import '../features/committees.dart';
+import '../features/currency.dart';
+import '../features/lock.dart';
+import '../features/notify_settings.dart';
+import '../features/seasons.dart';
+import '../features/zakat.dart';
+import '../i18n.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -20,11 +27,11 @@ class SettingsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = context.watch<AppState>();
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: Text(tr('Settings'))),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
         children: [
-          const SectionTitle('Backup & Sync'),
+          SectionTitle(tr('Backup & Sync')),
           Builder(builder: (context) {
             final sync = context.watch<SyncService>();
             final connected = sync.kind != CloudKind.none;
@@ -51,7 +58,68 @@ class SettingsScreen extends StatelessWidget {
               ),
             );
           }),
-          const SectionTitle('Preferences'),
+          const SizedBox(height: 10),
+          AppCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(Icons.notifications_none_rounded),
+                  title: Text(tr('Notifications')),
+                  subtitle: const Text('Reminder time, alerts, add to Calendar'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => const NotificationSettingsScreen())),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.lock_outline_rounded),
+                  title: Text(tr('Privacy & lock')),
+                  subtitle: const Text('PIN, Face ID / fingerprint, hide amounts'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const PrivacyScreen())),
+                ),
+              ],
+            ),
+          ),
+          SectionTitle(tr('Tools')),
+          AppCard(
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                for (final (icon, title, sub, page) in [
+                  (Icons.groups_rounded, tr('Committees'), 'Committee / BC tracker',
+                      () => const CommitteesScreen() as Widget),
+                  (Icons.volunteer_activism_rounded, tr('Zakat calculator'),
+                      'Nisab, 2.5%, yearly reminder', () => const ZakatScreen() as Widget),
+                  (Icons.nightlight_round, tr('Ramadan & Eid'),
+                      'Seasonal budget planner', () => const SeasonsScreen() as Widget),
+                  (Icons.currency_exchange_rounded, tr('Currencies'),
+                      'AED, SAR, USD… with your rates', () => const CurrenciesScreen() as Widget),
+                ]) ...[
+                  ListTile(
+                    leading: Icon(icon),
+                    title: Text(title),
+                    subtitle: Text(sub),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => Navigator.push(
+                        context, MaterialPageRoute(builder: (_) => page())),
+                  ),
+                  const Divider(height: 1),
+                ],
+                ListTile(
+                  leading: const Icon(Icons.event_available_rounded),
+                  title: const Text('Add bills to Calendar'),
+                  subtitle: const Text('Reminders even when the app is closed'),
+                  onTap: () => exportBillsToCalendar(context),
+                ),
+              ],
+            ),
+          ),
+          SectionTitle(tr('Preferences')),
           AppCard(
             padding: EdgeInsets.zero,
             child: Column(
@@ -112,6 +180,36 @@ class SettingsScreen extends StatelessWidget {
                   ),
                   onTap: () => Navigator.push(context,
                       MaterialPageRoute(builder: (_) => const ThemePicker())),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.translate_rounded),
+                  title: Text(tr('Language')),
+                  trailing: DropdownButton<String>(
+                    value: L.languages.containsKey(s.lang) ? s.lang : 'en',
+                    underline: const SizedBox.shrink(),
+                    items: [
+                      for (final e in L.languages.entries)
+                        DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    ],
+                    onChanged: (v) => s.setPref('lang', v ?? 'en'),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(Icons.payments_outlined),
+                  title: const Text('Month starts on'),
+                  subtitle: const Text('Set to your payday for salary-to-salary budgets'),
+                  trailing: DropdownButton<int>(
+                    value: s.monthStart,
+                    underline: const SizedBox.shrink(),
+                    menuMaxHeight: 320,
+                    items: [
+                      for (var d = 1; d <= 28; d++)
+                        DropdownMenuItem(value: d, child: Text(d == 1 ? '1st (calendar)' : ordinal(d))),
+                    ],
+                    onChanged: (v) => s.setPref('monthStart', v ?? 1),
+                  ),
                 ),
               ],
             ),
@@ -488,7 +586,7 @@ class ThemePicker extends StatelessWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Theme')),
+      appBar: AppBar(title: Text(tr('Theme'))),
       body: GridView.count(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         crossAxisCount: 2,

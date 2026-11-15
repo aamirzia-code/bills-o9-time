@@ -20,6 +20,7 @@ class _BillFormState extends State<BillForm> {
   late final TextEditingController _name;
   late final TextEditingController _amount;
   late final TextEditingController _notes;
+  late final TextEditingController _ref;
   late DateTime _due;
   late Repeat _repeat;
   late int _every;
@@ -41,13 +42,16 @@ class _BillFormState extends State<BillForm> {
                 ? b.amount.toStringAsFixed(0)
                 : b.amount.toString()));
     _notes = TextEditingController(text: b?.notes ?? '');
+    _ref = TextEditingController(text: b?.refNo ?? '');
     _due = b?.dueDate ?? DateTime.now().add(const Duration(days: 7));
     final (rep, every) = normalizeRepeat(b?.repeat ?? Repeat.monthly, b?.every ?? 1);
     _repeat = rep;
     _every = every;
     _autoPay = b?.autoPay ?? false;
     _dueDay = (b != null && b.dueDay > 0) ? b.dueDay : _due.day;
-    _remind = b?.remindDaysBefore ?? 2;
+    _remind = b?.remindDaysBefore ??
+        context.read<AppState>().pref<int>('defaultRemind', 2);
+    if (![0, 1, 2, 3, 5, 7].contains(_remind)) _remind = 2;
     _categoryId = b?.categoryId;
     _accountId = context.read<AppState>().account(b?.accountId)?.id;
   }
@@ -57,6 +61,7 @@ class _BillFormState extends State<BillForm> {
     _name.dispose();
     _amount.dispose();
     _notes.dispose();
+    _ref.dispose();
     super.dispose();
   }
 
@@ -76,6 +81,7 @@ class _BillFormState extends State<BillForm> {
       autoPay: _autoPay,
       remindDaysBefore: _remind,
       notes: _notes.text.trim(),
+      refNo: _ref.text.trim(),
       active: true,
     ));
     if (mounted) Navigator.pop(context);
@@ -118,7 +124,7 @@ class _BillFormState extends State<BillForm> {
     final cats = s.categoriesOf(TxType.expense);
     return Scaffold(
       appBar: AppBar(
-          title: Text(widget.bill == null ? 'New bill' : 'Edit bill')),
+          title: Text(widget.bill?.id == null ? 'New bill' : 'Edit bill')),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
@@ -145,6 +151,15 @@ class _BillFormState extends State<BillForm> {
             ),
             const SizedBox(height: 12),
             MoneyField(controller: _amount),
+            const SizedBox(height: 12),
+            TextFormField(
+              controller: _ref,
+              decoration: const InputDecoration(
+                labelText: 'Consumer / reference no. (optional)',
+                hintText: 'e.g. K-Electric account no., PTCL phone, card last 4',
+                prefixIcon: Icon(Icons.tag_rounded),
+              ),
+            ),
             const SizedBox(height: 12),
             DropdownButtonFormField<Repeat>(
               value: _repeat,
@@ -225,7 +240,7 @@ class _BillFormState extends State<BillForm> {
             ],
             const SizedBox(height: 12),
             DateField(
-                label: widget.bill == null ? 'First due date' : 'Next due date',
+                label: widget.bill?.id == null ? 'First due date' : 'Next due date',
                 value: _due,
                 onChanged: _setDate),
             const SizedBox(height: 10),

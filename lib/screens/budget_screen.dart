@@ -16,7 +16,7 @@ class BudgetScreen extends StatefulWidget {
 }
 
 class _BudgetScreenState extends State<BudgetScreen> {
-  DateTime _month = DateTime(DateTime.now().year, DateTime.now().month);
+  late DateTime _month = context.read<AppState>().currentMonth;
 
   @override
   Widget build(BuildContext context) {

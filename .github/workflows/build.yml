@@ -14,6 +14,8 @@ env:
 jobs:
   android:
     name: Android APK
+    # Web-only for now: run native builds manually from the Actions tab.
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -48,6 +50,7 @@ jobs:
 
   ios:
     name: iOS IPA (unsigned, for Sideloadly)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -91,6 +94,10 @@ jobs:
       - run: flutter pub get
       - name: SQLite for the browser
         run: dart run sqflite_common_ffi_web:setup
+      - name: Analyze
+        run: flutter analyze --no-fatal-infos --no-fatal-warnings
+      - name: Unit tests
+        run: flutter test
       - name: App icon
         continue-on-error: true
         run: dart run flutter_launcher_icons
@@ -99,6 +106,7 @@ jobs:
       - name: Build web app
         run: |
           cp tool/web/oauth.html web/oauth.html
+          cp tool/web/passkey.js web/passkey.js
           flutter build web --release --base-href /bills-o9-time/ \
             --dart-define=GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }} \
             --dart-define=DROPBOX_APP_KEY=${{ vars.DROPBOX_APP_KEY }}

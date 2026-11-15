@@ -1,7 +1,10 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'i18n.dart';
 import 'models.dart';
 import 'notifications.dart';
 import 'utils.dart';
@@ -23,6 +26,37 @@ class AppState extends ChangeNotifier {
   String userName = '';
   double? incomeBudget;
   bool _autoPayRan = false;
+  List<Committee> committees = [];
+  List<SeasonPlan> seasons = [];
+  List<Attachment> attachments = [];
+
+  /// Small preferences stored as one JSON setting (included in backups).
+  Map<String, dynamic> prefs = {};
+
+  T pref<T>(String key, T fallback) {
+    final v = prefs[key];
+    return v is T ? v : fallback;
+  }
+
+  Future<void> setPref(String key, Object? value) async {
+    if (value == null) {
+      prefs.remove(key);
+    } else {
+      prefs[key] = value;
+    }
+    await _db.setSetting('prefs', jsonEncode(prefs));
+    _applyPrefs();
+    notifyListeners();
+  }
+
+  void _applyPrefs() {
+    Fmt.hidden = pref<bool>('hideAmounts', false);
+    Notifier.remindHour = pref<int>('remindHour', 9);
+    L.lang = pref<String>('lang', 'en');
+  }
+
+  int get monthStart => pref<int>('monthStart', 1).clamp(1, 28);
+  String get lang => pref<String>('lang', 'en');
 
   Future<void> load() async {
     categories = (await _db.all('categories', orderBy: 'name'))
@@ -57,6 +91,26 @@ class AppState extends ChangeNotifier {
     if (previewSkin != null && previewSkin.isNotEmpty) skinId = previewSkin;
     userName = await _db.getSetting('name') ?? '';
     incomeBudget = double.tryParse(await _db.getSetting('income_budget') ?? '');
+    try {
+      final raw = await _db.getSetting('prefs');
+      prefs = raw == null || raw.isEmpty
+          ? {}
+          : (jsonDecode(raw) as Map).cast<String, dynamic>();
+    } catch (_) {
+      prefs = {};
+    }
+    _applyPrefs();
+    committees = (await _db.all('committees', orderBy: 'id'))
+        .map(Committee.fromMap)
+        .toList();
+    seasons = (await _db.all('seasons', orderBy: 'start DESC'))
+        .map(SeasonPlan.fromMap)
+        .toList();
+    attachments = [
+      for (final r in await _db.attachmentIndex())
+        Attachment(r['id'] as int, r['txn_id'] as int,
+            DateTime.fromMillisecondsSinceEpoch(r['created'] as int)),
+    ];
     loaded = true;
     notifyListeners();
     if (!_autoPayRan) {
@@ -172,11 +226,11 @@ class AppState extends ChangeNotifier {
     return out;
   }
 
-  /// Unpaid amounts still due in [month] from today on.
+  /// Unpaid amounts still due in [month]'s period from today on.
   double upcomingInMonth(DateTime month) {
-    final end = DateTime(month.year, month.month + 1, 0, 23, 59);
+    final end = periodEnd(month).subtract(const Duration(minutes: 1));
     return upcomingDues(end)
-        .where((d) => d.date.year == month.year && d.date.month == month.month)
+        .where((d) => _sameMonth(d.date, month))
         .fold(0.0, (s, d) => s + d.bill.amount);
   }
 
@@ -189,7 +243,7 @@ class AppState extends ChangeNotifier {
 
   /// Total balance at the end of [month] (today's balance for this month).
   double balanceAt(DateTime month) {
-    final end = DateTime(month.year, month.month + 1, 1);
+    final end = periodEnd(month);
     var bal = totalBalance;
     for (final t in txns) {
       if (t.accountId == null || account(t.accountId) == null) continue;
@@ -210,8 +264,52 @@ class AppState extends ChangeNotifier {
     return map;
   }
 
+  /// Budget months can start on payday (Settings → Month starts on).
+  DateTime periodStart(DateTime m) => DateTime(m.year, m.month, monthStart);
+  DateTime periodEnd(DateTime m) => DateTime(m.year, m.month + 1, monthStart);
+
+  /// The month whose period contains today.
+  DateTime get currentMonth {
+    final now = DateTime.now();
+    return now.day >= monthStart
+        ? DateTime(now.year, now.month)
+        : DateTime(now.year, now.month - 1);
+  }
+
   bool _sameMonth(DateTime a, DateTime m) =>
-      a.year == m.year && a.month == m.month;
+      !a.isBefore(periodStart(m)) && a.isBefore(periodEnd(m));
+
+  bool inPeriod(DateTime a, DateTime m) => _sameMonth(a, m);
+
+  /// Bills still to pay from today until the end of the current period.
+  double get billsLeftThisPeriod {
+    final end = periodEnd(currentMonth).subtract(const Duration(minutes: 1));
+    return upcomingDues(end).fold(0.0, (s, d) => s + d.bill.amount);
+  }
+
+  double get goalsMonthlyNeed => goals.fold(
+      0.0, (s, g) => s + g.monthlyNeed(goalProgress(g), currentMonth));
+
+  /// Money that can still be spent per day this period after bills and goals.
+  double get safeToSpendToday {
+    final m = currentMonth;
+    final available = incomeBudget ?? incomeInMonth(m);
+    final left = available - expenseInMonth(m) - billsLeftThisPeriod - goalsMonthlyNeed;
+    final now = DateTime.now();
+    final days = periodEnd(m)
+        .difference(DateTime(now.year, now.month, now.day))
+        .inDays
+        .clamp(1, 31);
+    return left / days;
+  }
+
+  int get daysLeftInPeriod {
+    final now = DateTime.now();
+    return periodEnd(currentMonth)
+        .difference(DateTime(now.year, now.month, now.day))
+        .inDays
+        .clamp(1, 31);
+  }
 
   List<Txn> txnsInMonth(DateTime month) =>
       txns.where((t) => _sameMonth(t.date, month)).toList();
@@ -278,6 +376,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteTxn(Txn t) async {
+    await _db.deleteWhere('attachments', 'txn_id = ?', [t.id]);
     await _db.delete('txns', t.id!);
     await load();
   }
@@ -395,6 +494,86 @@ class AppState extends ChangeNotifier {
   Future<void> deleteAccount(Account a) async {
     await _db.delete('accounts', a.id!);
     await load();
+  }
+
+  // Committees, seasonal plans, receipts ------------------------------------
+
+  Future<void> saveCommittee(Committee c) async {
+    if (c.id == null) {
+      await _db.insert('committees', c.toMap());
+    } else {
+      await _db.update('committees', c.toMap());
+    }
+    await load();
+  }
+
+  Future<void> deleteCommittee(Committee c) async {
+    await _db.delete('committees', c.id!);
+    await load();
+  }
+
+  Future<void> saveSeason(SeasonPlan p) async {
+    if (p.id == null) {
+      await _db.insert('seasons', p.toMap());
+    } else {
+      await _db.update('seasons', p.toMap());
+    }
+    await load();
+  }
+
+  Future<void> deleteSeason(SeasonPlan p) async {
+    await _db.delete('seasons', p.id!);
+    await load();
+  }
+
+  /// Ensures an expense category exists and returns its id.
+  Future<int> ensureCategory(String name, String icon, int color) async {
+    for (final c in categories) {
+      if (c.name.toLowerCase() == name.toLowerCase() &&
+          c.type == TxType.expense) {
+        return c.id!;
+      }
+    }
+    final id = await _db.insert('categories', {
+      'name': name,
+      'type': TxType.expense.index,
+      'icon': icon,
+      'color': color,
+    });
+    await load();
+    return id;
+  }
+
+  List<Attachment> attachmentsFor(int? txnId) =>
+      txnId == null ? const [] : attachments.where((a) => a.txnId == txnId).toList();
+
+  Future<void> addAttachment(int txnId, String base64Jpeg) async {
+    await _db.insert('attachments', {
+      'txn_id': txnId,
+      'data': base64Jpeg,
+      'created': DateTime.now().millisecondsSinceEpoch,
+    });
+    await load();
+  }
+
+  Future<String?> attachmentData(int id) => _db.attachmentData(id);
+
+  Future<void> deleteAttachment(int id) async {
+    await _db.delete('attachments', id);
+    await load();
+  }
+
+  /// Saves a transaction and returns its id.
+  Future<int> saveTxnReturningId(Txn t) async {
+    int id;
+    if (t.id == null) {
+      id = await _db.insert('txns', t.toMap());
+    } else {
+      id = t.id!;
+      await _db.update('txns', t.toMap());
+    }
+    await load();
+    return id;
   }
 
   Future<void> setCurrency(String symbol) async {

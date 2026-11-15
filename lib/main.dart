@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
+import 'features/lock.dart';
+import 'i18n.dart';
 import 'notifications.dart';
 import 'screens/accounts_screen.dart';
 import 'screens/bills_screen.dart';
@@ -19,10 +22,13 @@ Future<void> main() async {
   await state.load();
   Notifier.instance.rescheduleAll(state.activeBills);
   final sync = SyncService(state);
+  final lock = AppLock();
+  await lock.init();
   runApp(MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: state),
       ChangeNotifierProvider.value(value: sync),
+      ChangeNotifierProvider.value(value: lock),
     ],
     child: const BillsApp(),
   ));
@@ -35,6 +41,7 @@ class BillsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final skinId = context.select<AppState, String>((s) => s.skinId);
+    final lang = context.select<AppState, String>((s) => s.lang);
     final auto = skinId == kSkinAuto;
     final chosen = skinById(skinId);
     return MaterialApp(
@@ -45,6 +52,14 @@ class BillsApp extends StatelessWidget {
       themeMode: auto
           ? ThemeMode.system
           : (chosen.dark ? ThemeMode.dark : ThemeMode.light),
+      locale: Locale(lang),
+      supportedLocales: const [Locale('en'), Locale('ur'), Locale('ar')],
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      builder: (context, child) => LockGate(child: child!),
       home: const Shell(),
     );
   }
@@ -84,14 +99,19 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      context.read<AppLock>().onResumed();
       context.read<AppState>().runAutoPay();
       context.read<SyncService>().autoSync();
+    } else if (state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.paused) {
+      context.read<AppLock>().onHidden();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final overdue = context.watch<AppState>().overdueBills.length;
+    context.select<AppState, String>((s) => s.lang); // rebuild labels
     final pages = [
       HomeScreen(onNavigate: (i, {int? billsTab}) => goTo(i, billsTab: billsTab)),
       BillsScreen(key: ValueKey('bills-$_billsTab'), initialTab: _billsTab),
@@ -105,13 +125,13 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
         index: _index,
         onTap: (i) => goTo(i),
         badges: {1: overdue},
-        items: const [
-          (Icons.home_outlined, Icons.home_rounded, 'Home'),
-          (Icons.receipt_long_outlined, Icons.receipt_long_rounded, 'Bills'),
-          (Icons.calculate_outlined, Icons.calculate_rounded, 'Budget'),
+        items: [
+          (Icons.home_outlined, Icons.home_rounded, tr('Home')),
+          (Icons.receipt_long_outlined, Icons.receipt_long_rounded, tr('Bills')),
+          (Icons.calculate_outlined, Icons.calculate_rounded, tr('Budget')),
           (Icons.account_balance_outlined, Icons.account_balance_rounded,
-              'Accounts'),
-          (Icons.auto_awesome_outlined, Icons.auto_awesome_rounded, 'Insights'),
+              tr('Accounts')),
+          (Icons.auto_awesome_outlined, Icons.auto_awesome_rounded, tr('Insights')),
         ],
       ),
     );
