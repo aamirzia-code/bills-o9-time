@@ -291,6 +291,87 @@ class AppDb {
         conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /// Tables included in backups, in safe insert order.
+  static const backupTables = [
+    'categories',
+    'accounts',
+    'bills',
+    'txns',
+    'budgets',
+    'goals',
+    'goal_entries',
+    'settings',
+  ];
+
+  /// Settings keys starting with this prefix (sync tokens, passphrase) stay
+  /// on the device and are never written into a backup.
+  static const localOnlyPrefix = 'sync_';
+
+  /// All app data as compact column/row arrays.
+  Future<Map<String, dynamic>> exportData() async {
+    final d = await db;
+    final tables = <String, dynamic>{};
+    for (final t in backupTables) {
+      final cols = [
+        for (final c in await d.rawQuery('PRAGMA table_info($t)'))
+          c['name'] as String
+      ];
+      final rows = t == 'settings'
+          ? await d.query(t,
+              where: 'key NOT LIKE ?', whereArgs: ['$localOnlyPrefix%'])
+          : await d.query(t);
+      tables[t] = {
+        'c': cols,
+        'r': [
+          for (final r in rows) [for (final c in cols) r[c]]
+        ],
+      };
+    }
+    return {
+      'v': 1,
+      'db': 3,
+      'at': DateTime.now().toUtc().toIso8601String(),
+      't': tables,
+    };
+  }
+
+  /// Replaces all app data with [data] from [exportData].
+  Future<void> importData(Map<String, dynamic> data) async {
+    final tables = (data['t'] as Map).cast<String, dynamic>();
+    final d = await db;
+    await d.transaction((tx) async {
+      for (final t in backupTables.reversed) {
+        if (t == 'settings') {
+          await tx.delete(t,
+              where: 'key NOT LIKE ?', whereArgs: ['$localOnlyPrefix%']);
+        } else {
+          await tx.delete(t);
+        }
+      }
+      for (final t in backupTables) {
+        final src = tables[t];
+        if (src is! Map) continue;
+        final existing = {
+          for (final c in await tx.rawQuery('PRAGMA table_info($t)'))
+            c['name'] as String
+        };
+        final cols = (src['c'] as List).cast<String>();
+        for (final row in (src['r'] as List)) {
+          final values = row as List;
+          final m = <String, Object?>{};
+          for (var i = 0; i < cols.length && i < values.length; i++) {
+            if (existing.contains(cols[i])) m[cols[i]] = values[i];
+          }
+          if (t == 'settings' &&
+              (m['key'] as String? ?? '').startsWith(localOnlyPrefix)) {
+            continue;
+          }
+          await tx.insert(t, m, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+      }
+    });
+  }
+
   Future<void> wipe() async {
     final d = await db;
     for (final t in ['txns', 'bills', 'budgets', 'goal_entries', 'goals']) {

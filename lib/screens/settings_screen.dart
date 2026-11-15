@@ -7,7 +7,10 @@ import '../export.dart';
 import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import '../sync/cloud_providers.dart';
+import '../sync/sync_service.dart';
 import 'accounts_screen.dart';
+import 'backup_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -20,6 +23,33 @@ class SettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
         children: [
+          const SectionTitle('Backup & Sync'),
+          Builder(builder: (context) {
+            final sync = context.watch<SyncService>();
+            final connected = sync.kind != CloudKind.none;
+            return AppCard(
+              padding: EdgeInsets.zero,
+              child: ListTile(
+                leading: Icon(
+                  connected ? Icons.cloud_done_rounded : Icons.cloud_outlined,
+                  color: connected && !sync.needsSignIn
+                      ? const Color(0xFF22C55E)
+                      : null,
+                ),
+                title: Text(connected
+                    ? cloudName(sync.kind)
+                    : 'Back up to Google Drive, Dropbox or a file'),
+                subtitle: Text(connected
+                    ? (sync.needsSignIn
+                        ? 'Sign-in expired — tap to reconnect'
+                        : sync.describeLastSync())
+                    : 'Encrypted, one small file, synced daily'),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => const BackupScreen())),
+              ),
+            );
+          }),
           const SectionTitle('Preferences'),
           AppCard(
             padding: EdgeInsets.zero,

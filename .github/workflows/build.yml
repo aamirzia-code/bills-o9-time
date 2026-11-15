@@ -97,7 +97,11 @@ jobs:
       - name: Patch PWA manifest
         run: python3 tool/patch_platforms.py web
       - name: Build web app
-        run: flutter build web --release --base-href /bills-o9-time/
+        run: |
+          cp tool/web/oauth.html web/oauth.html
+          flutter build web --release --base-href /bills-o9-time/ \
+            --dart-define=GOOGLE_CLIENT_ID=${{ vars.GOOGLE_CLIENT_ID }} \
+            --dart-define=DROPBOX_APP_KEY=${{ vars.DROPBOX_APP_KEY }}
       - name: Package
         run: cd build/web && zip -qr ../../BillsO9Time-web.zip .
       - uses: actions/upload-artifact@v4

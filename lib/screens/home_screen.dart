@@ -9,6 +9,9 @@ import '../export.dart';
 import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
+import '../sync/cloud_providers.dart';
+import '../sync/sync_service.dart';
+import 'backup_screen.dart';
 import 'bill_form.dart';
 import 'settings_screen.dart';
 import 'transactions_screen.dart';
@@ -87,6 +90,7 @@ class HomeScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
         children: [
+          const _BackupNudge(),
           _SpendingCard(onNavigate: onNavigate),
           const SizedBox(height: 12),
           _PlannerCard(onNavigate: onNavigate),
@@ -578,6 +582,53 @@ class _ReportCardState extends State<_ReportCard> {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+
+/// Reminds to set up backup, or to reconnect when sign-in expired.
+class _BackupNudge extends StatelessWidget {
+  const _BackupNudge();
+
+  @override
+  Widget build(BuildContext context) {
+    final sync = context.watch<SyncService>();
+    final s = context.watch<AppState>();
+    final hasData = s.bills.isNotEmpty || s.txns.length > 3;
+    String? text;
+    if (sync.kind != CloudKind.none && sync.needsSignIn) {
+      text = 'Backup paused — tap to reconnect ${cloudName(sync.kind)}';
+    } else if (sync.choiceNeeded) {
+      text = 'A backup was found in ${cloudName(sync.kind)} — tap to restore it';
+    } else if (sync.kind == CloudKind.none && hasData) {
+      text = 'Your data is only on this device. Tap to set up backup';
+    }
+    if (text == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: AppCard(
+        color: const Color(0xFFF59E0B).withOpacity(0.14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        onTap: () {
+          if (sync.needsSignIn) {
+            sync.reconnect();
+          } else {
+            Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const BackupScreen()));
+          }
+        },
+        child: Row(
+          children: [
+            const Icon(Icons.cloud_upload_outlined, color: Color(0xFFF59E0B)),
+            const SizedBox(width: 12),
+            Expanded(
+                child: Text(text,
+                    style: const TextStyle(fontWeight: FontWeight.w600))),
+            const Icon(Icons.chevron_right_rounded),
+          ],
+        ),
       ),
     );
   }

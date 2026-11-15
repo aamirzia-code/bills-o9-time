@@ -8,6 +8,7 @@ import 'screens/bills_screen.dart';
 import 'screens/budget_hub.dart';
 import 'screens/home_screen.dart';
 import 'screens/reports_screen.dart';
+import 'sync/sync_service.dart';
 
 const kAccent = Color(0xFF2F80ED);
 
@@ -17,7 +18,15 @@ Future<void> main() async {
   final state = AppState();
   await state.load();
   Notifier.instance.rescheduleAll(state.activeBills);
-  runApp(ChangeNotifierProvider.value(value: state, child: const BillsApp()));
+  final sync = SyncService(state);
+  runApp(MultiProvider(
+    providers: [
+      ChangeNotifierProvider.value(value: state),
+      ChangeNotifierProvider.value(value: sync),
+    ],
+    child: const BillsApp(),
+  ));
+  sync.init();
 }
 
 ThemeData buildTheme(Brightness b) {
@@ -151,6 +160,7 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       context.read<AppState>().runAutoPay();
+      context.read<SyncService>().autoSync();
     }
   }
 
