@@ -28,6 +28,18 @@ class ToolDef {
   final String hint;
   final WidgetBuilder page;
   const ToolDef(this.id, this.icon, this.color, this.label, this.hint, this.page);
+
+  /// Fits a Home tile.
+  String get short => const {
+        'people': 'Split',
+        'lists': 'Lists',
+        'meters': 'Meters',
+        'fuel': 'Fuel',
+        'seasons': 'Ramadan',
+        'currencies': 'FX rates',
+        'reminders': 'Reminders',
+      }[id] ??
+      label;
 }
 
 final kToolGroups = <String, List<ToolDef>>{

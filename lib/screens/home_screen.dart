@@ -17,7 +17,6 @@ import '../features/quick_add.dart';
 import '../features/tools_hub.dart';
 import '../features/currency.dart';
 import '../i18n.dart';
-import 'bill_form.dart';
 import 'settings_screen.dart';
 import 'transactions_screen.dart';
 
@@ -700,8 +699,8 @@ class _ToolsRow extends StatelessWidget {
     return Row(
       children: [
         for (final t in pinnedTools(s).take(4))
-          tile(t.icon, t.color, tr(t.label), t.page, badge: badgeFor(t.id)),
-        tile(Icons.apps_rounded, cs.primary, tr('All tools'), (_) => const ToolsHub()),
+          tile(t.icon, t.color, tr(t.short), t.page, badge: badgeFor(t.id)),
+        tile(Icons.apps_rounded, cs.primary, tr('More'), (_) => const ToolsHub()),
       ],
     );
   }

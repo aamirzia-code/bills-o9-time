@@ -116,7 +116,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         ListView(
           padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
           children: [
-            Container(
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Container(
               width: 64,
               height: 64,
               alignment: Alignment.center,
@@ -125,7 +127,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                 borderRadius: BorderRadius.circular(20),
               ),
               child: Icon(icon, color: cs.primary, size: 32),
-            ),
+            )),
             const SizedBox(height: 20),
             Text(title, style: t.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
             const SizedBox(height: 8),

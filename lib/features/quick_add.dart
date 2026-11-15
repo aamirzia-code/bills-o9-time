@@ -179,6 +179,7 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
             children: [
               TextField(
                 controller: _text,
+                autofocus: true,
                 textInputAction: TextInputAction.done,
                 onChanged: (_) => _parse(s),
                 onSubmitted: (_) => _submit(s),
@@ -251,12 +252,15 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
                 const SizedBox(height: 14),
                 Text('One-tap repeat', style: TextStyle(fontWeight: FontWeight.w700, color: cs.onSurfaceVariant)),
                 const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                SizedBox(
+                  height: 40,
+                  child: ListView(
+                  scrollDirection: Axis.horizontal,
                   children: [
                     for (final f in favs)
-                      ActionChip(
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ActionChip(
                         avatar: Icon(iconFor(s.category(f.categoryId)?.icon ?? 'other'), size: 17),
                         label: Text('${f.note} · ${Fmt.money(f.amount)}'),
                         onPressed: () async {
@@ -272,9 +276,9 @@ class _QuickAddSheetState extends State<_QuickAddSheet> {
                           final id = await s.saveTxnReturningId(t);
                           await _saved(nav, m, s, t, id);
                         },
-                      ),
+                      )),
                   ],
-                ),
+                )),
               ],
               const SizedBox(height: 14),
               GridView.count(
