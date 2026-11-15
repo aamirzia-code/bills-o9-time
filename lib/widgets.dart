@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'models.dart';
+import 'skins.dart';
 import 'utils.dart';
 
 class AppCard extends StatelessWidget {
@@ -20,14 +21,33 @@ class AppCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(
+    final sk = context.skin;
+    final r = BorderRadius.circular(sk.radius);
+    final card = Material(
       color: color ?? Theme.of(context).colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: r,
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
         child: Padding(padding: padding, child: child),
       ),
+    );
+    if (sk.cardBorder == null && !sk.cardShadow) return card;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: r,
+        border: sk.cardBorder == null ? null : Border.all(color: sk.cardBorder!),
+        boxShadow: sk.cardShadow
+            ? [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 3,
+                  offset: const Offset(1, 2),
+                ),
+              ]
+            : null,
+      ),
+      child: card,
     );
   }
 }

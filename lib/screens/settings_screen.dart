@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../app_state.dart';
 import '../export.dart';
 import '../models.dart';
+import '../skins.dart';
 import '../utils.dart';
 import '../widgets.dart';
 import '../sync/cloud_providers.dart';
@@ -96,21 +97,21 @@ class SettingsScreen extends StatelessWidget {
                 ),
                 const Divider(height: 1),
                 ListTile(
-                  leading: const Icon(Icons.dark_mode_rounded),
-                  title: const Text('Appearance'),
-                  trailing: DropdownButton<ThemeMode>(
-                    value: s.themeMode,
-                    underline: const SizedBox.shrink(),
-                    items: const [
-                      DropdownMenuItem(
-                          value: ThemeMode.system, child: Text('System')),
-                      DropdownMenuItem(
-                          value: ThemeMode.light, child: Text('Light')),
-                      DropdownMenuItem(
-                          value: ThemeMode.dark, child: Text('Dark')),
+                  leading: const Icon(Icons.palette_outlined),
+                  title: const Text('Theme'),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                          s.skinId == kSkinAuto
+                              ? 'Auto'
+                              : skinById(s.skinId).name,
+                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      const Icon(Icons.chevron_right_rounded),
                     ],
-                    onChanged: (m) => s.setTheme(m ?? ThemeMode.system),
                   ),
+                  onTap: () => Navigator.push(context,
+                      MaterialPageRoute(builder: (_) => const ThemePicker())),
                 ),
               ],
             ),
@@ -428,6 +429,87 @@ class CategoriesScreen extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+
+class ThemePicker extends StatelessWidget {
+  const ThemePicker({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
+    final cs = Theme.of(context).colorScheme;
+
+    Widget tile(String id, String name, String tagline, Widget preview) {
+      final selected = s.skinId == id;
+      return GestureDetector(
+        onTap: () => s.setSkin(id),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 150),
+                padding: const EdgeInsets.all(3),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(13),
+                  border: Border.all(
+                    color: selected ? cs.primary : Colors.transparent,
+                    width: 2.5,
+                  ),
+                ),
+                child: preview,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
+                ),
+                if (selected)
+                  Icon(Icons.check_circle_rounded,
+                      size: 18, color: cs.primary),
+              ],
+            ),
+            Text(tagline,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11.5, color: cs.onSurfaceVariant)),
+          ],
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Theme')),
+      body: GridView.count(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        crossAxisCount: 2,
+        mainAxisSpacing: 18,
+        crossAxisSpacing: 14,
+        childAspectRatio: 0.72,
+        children: [
+          tile(
+            kSkinAuto,
+            'Auto',
+            'Daylight or Midnight, follows phone',
+            Row(
+              children: [
+                Expanded(child: SkinPreview(skinById('daylight'))),
+                const SizedBox(width: 4),
+                Expanded(child: SkinPreview(skinById('midnight'))),
+              ],
+            ),
+          ),
+          for (final k in kSkins) tile(k.id, k.name, k.tagline, SkinPreview(k)),
+        ],
       ),
     );
   }

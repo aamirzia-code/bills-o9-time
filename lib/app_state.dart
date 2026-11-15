@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'db.dart';
@@ -18,6 +19,7 @@ class AppState extends ChangeNotifier {
   List<GoalEntry> goalEntries = [];
   String currency = 'Rs';
   ThemeMode themeMode = ThemeMode.dark;
+  String skinId = 'midnight';
   String userName = '';
   double? incomeBudget;
   bool _autoPayRan = false;
@@ -42,6 +44,17 @@ class AppState extends ChangeNotifier {
     Fmt.symbol = currency;
     final tm = await _db.getSetting('theme');
     themeMode = ThemeMode.values[int.tryParse(tm ?? '') ?? ThemeMode.dark.index];
+    final sk = await _db.getSetting('skin');
+    skinId = (sk != null && sk.isNotEmpty)
+        ? sk
+        : switch (themeMode) {
+            ThemeMode.light => 'daylight',
+            ThemeMode.system => 'auto',
+            ThemeMode.dark => 'midnight',
+          };
+    // Web preview: ?skin=luna shows a theme without saving it.
+    final previewSkin = kIsWeb ? Uri.base.queryParameters['skin'] : null;
+    if (previewSkin != null && previewSkin.isNotEmpty) skinId = previewSkin;
     userName = await _db.getSetting('name') ?? '';
     incomeBudget = double.tryParse(await _db.getSetting('income_budget') ?? '');
     loaded = true;
@@ -399,6 +412,12 @@ class AppState extends ChangeNotifier {
   Future<void> setIncomeBudget(double? v) async {
     await _db.setSetting('income_budget', v?.toString() ?? '');
     incomeBudget = v;
+    notifyListeners();
+  }
+
+  Future<void> setSkin(String id) async {
+    await _db.setSetting('skin', id);
+    skinId = id;
     notifyListeners();
   }
 
