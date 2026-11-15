@@ -1,4 +1,8 @@
 import 'package:bills_o9_time/features/logic.dart';
+import 'package:bills_o9_time/features/heatmap.dart';
+import 'package:bills_o9_time/features/fuel.dart';
+import 'package:bills_o9_time/features/daily_models.dart';
+import 'package:bills_o9_time/features/quick_add.dart';
 import 'package:bills_o9_time/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -72,5 +76,99 @@ void main() {
     expect(ics, contains('RRULE:FREQ=MONTHLY;BYMONTHDAY=10'));
     expect(ics, contains('TRIGGER:-P2D'));
     expect(ics, contains('DTSTART:20261210T090000'));
+  });
+
+  group('quick entry', () {
+    final cats = [
+      const TxCategory(id: 1, name: 'Fuel', type: TxType.expense, icon: 'fuel', color: 0),
+      const TxCategory(id: 2, name: 'Food & Dining', type: TxType.expense, icon: 'food', color: 0),
+      const TxCategory(id: 3, name: 'Salary', type: TxType.income, icon: 'salary', color: 0),
+    ];
+    final accts = [
+      const Account(id: 10, name: 'Cash', kind: 'Cash', openingBalance: 0, color: 0),
+      const Account(id: 11, name: 'Meezan', kind: 'Bank', openingBalance: 0, color: 0),
+    ];
+    final now = DateTime(2026, 11, 15, 10);
+
+    test('amount, category and account', () {
+      final q = parseQuickEntry('500 petrol cash', categories: cats, accounts: accts, now: now);
+      expect(q.amount, 500);
+      expect(q.categoryId, 1);
+      expect(q.accountId, 10);
+      expect(q.type, TxType.expense);
+      expect(q.note, 'Petrol');
+    });
+
+    test('k suffix and yesterday', () {
+      final q = parseQuickEntry('lunch 1.2k yesterday meezan', categories: cats, accounts: accts, now: now);
+      expect(q.amount, 1200);
+      expect(q.categoryId, 2);
+      expect(q.accountId, 11);
+      expect(q.date, DateTime(2026, 11, 14, 12));
+    });
+
+    test('income', () {
+      final q = parseQuickEntry('salary 150,000', categories: cats, accounts: accts, now: now);
+      expect(q.amount, 150000);
+      expect(q.type, TxType.income);
+      expect(q.categoryId, 3);
+    });
+  });
+
+  group('daily tools', () {
+    Txn e(DateTime d, double a, {int? bill, TxType type = TxType.expense, String note = ''}) =>
+        Txn(type: type, amount: a, date: d, billId: bill, note: note);
+
+    test('no-spend streak ignores bill payments', () {
+      final today = DateTime(2026, 11, 15, 20);
+      final txns = [
+        e(DateTime(2026, 11, 10, 9), 500),
+        e(DateTime(2026, 11, 13, 9), 9000, bill: 1),
+        e(DateTime(2026, 11, 12, 9), 50000, type: TxType.income),
+      ];
+      expect(noSpendStreak(txns, today), 5);
+      expect(noSpendStreak([...txns, e(DateTime(2026, 11, 15, 8), 20)], today), 0);
+    });
+
+    test('daily spend buckets by day', () {
+      final m = dailySpend([
+        e(DateTime(2026, 11, 3, 9), 100),
+        e(DateTime(2026, 11, 3, 18), 50),
+        e(DateTime(2026, 11, 4, 9), 70, bill: 2),
+      ], DateTime(2026, 11, 1), DateTime(2026, 12, 1));
+      expect(m[DateTime(2026, 11, 3)], 150);
+      expect(m.containsKey(DateTime(2026, 11, 4)), isFalse);
+    });
+
+    test('fuel mileage', () {
+      final logs = [
+        FuelLog(vehicle: 'Car', date: DateTime(2026, 11, 1), litres: 30, price: 270, odometer: 10000),
+        FuelLog(vehicle: 'Car', date: DateTime(2026, 11, 10), litres: 25, price: 270, odometer: 10350),
+        FuelLog(vehicle: 'Car', date: DateTime(2026, 11, 20), litres: 25, price: 270, odometer: 10700),
+      ];
+      final st = fuelStats(logs, now: DateTime(2026, 11, 25));
+      expect(st.kmPerLitre, closeTo(14, 0.01));
+      expect(st.costPerKm, closeTo(270 / 14, 0.01));
+      expect(st.monthLitres, 80);
+    });
+
+    test('frequent entries need at least two repeats', () {
+      final now = DateTime(2026, 11, 15);
+      final f = frequentEntries([
+        e(DateTime(2026, 11, 1), 120, note: 'Chai'),
+        e(DateTime(2026, 11, 2), 120, note: 'chai'),
+        e(DateTime(2026, 11, 3), 120, note: 'Chai'),
+        e(DateTime(2026, 11, 4), 900, note: 'Pizza'),
+      ], now: now);
+      expect(f.length, 1);
+      expect(f.first.count, 3);
+      expect(f.first.amount, 120);
+    });
+
+    test('renewal days left and renew', () {
+      final r = Renewal(name: 'Token', kind: 'vehicle', expiry: DateTime(2026, 11, 25));
+      expect(r.daysLeft(DateTime(2026, 11, 15, 22)), 10);
+      expect(r.renewed().expiry, DateTime(2027, 11, 25));
+    });
   });
 }

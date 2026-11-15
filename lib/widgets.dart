@@ -172,18 +172,21 @@ class MoneyField extends StatelessWidget {
   final TextEditingController controller;
   final String label;
   final bool autofocus;
+  final ValueChanged<String>? onChanged;
 
   const MoneyField(
       {super.key,
       required this.controller,
       this.label = 'Amount',
-      this.autofocus = false});
+      this.autofocus = false,
+      this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller,
       autofocus: autofocus,
+      onChanged: onChanged,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),

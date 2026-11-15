@@ -9,6 +9,7 @@ import '../utils.dart';
 import '../widgets.dart';
 import '../i18n.dart';
 import 'transactions_screen.dart';
+import '../features/heatmap.dart';
 import '../features/share_summary.dart';
 
 const _green = Color(0xFF22C55E);
@@ -152,6 +153,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ],
           ),
+          const SizedBox(height: 12),
+          SpendHeatmap(month: _month),
           const SizedBox(height: 12),
           _Distribution(
             title: 'Spending Distribution',

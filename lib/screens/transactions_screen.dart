@@ -179,9 +179,7 @@ class TxnTile extends StatelessWidget {
               borderRadius: BorderRadius.circular(18)),
           child: const Icon(Icons.delete_rounded, color: Colors.white),
         ),
-        confirmDismiss: (_) =>
-            confirm(context, 'Delete transaction?', 'This can\'t be undone.'),
-        onDismissed: (_) => s.deleteTxn(t),
+        onDismissed: (_) => deleteWithUndo(context, t),
         child: AppCard(
           padding: const EdgeInsets.all(12),
           onTap: () => openTxnForm(context, txn: t),
@@ -226,13 +224,31 @@ class TxnTile extends StatelessWidget {
   }
 }
 
-void openTxnForm(BuildContext context,
-    {Txn? txn, TxType? type, Txn? prefill, bool pasteSms = false}) {
-  Navigator.push(
+/// Delete with a 5-second "Undo" snackbar instead of a confirm dialog.
+Future<void> deleteWithUndo(BuildContext context, Txn t,
+    {ScaffoldMessengerState? messenger, AppState? state}) async {
+  final m = messenger ?? ScaffoldMessenger.of(context);
+  final s = state ?? context.read<AppState>();
+  final undo = await s.deleteTxnWithUndo(t);
+  m
+    ..hideCurrentSnackBar()
+    ..showSnackBar(SnackBar(
+      content: Text('Deleted ${t.note.isEmpty ? 'transaction' : t.note}'),
+      duration: const Duration(seconds: 5),
+      behavior: SnackBarBehavior.floating,
+      action: SnackBarAction(label: 'Undo', onPressed: undo),
+    ));
+}
+
+/// Completes with true when the transaction was saved.
+Future<bool> openTxnForm(BuildContext context,
+    {Txn? txn, TxType? type, Txn? prefill, bool pasteSms = false}) async {
+  final r = await Navigator.push<bool>(
       context,
       MaterialPageRoute(
           builder: (_) => TxnForm(
               txn: txn, type: type, prefill: prefill, pasteSms: pasteSms)));
+  return r == true;
 }
 
 class TxnForm extends StatefulWidget {
@@ -258,6 +274,7 @@ class _TxnFormState extends State<TxnForm> {
   late final TextEditingController _note;
   late DateTime _date;
   int? _categoryId;
+  bool _categoryAuto = false; // picked from memory, not by hand
   int? _accountId;
   String _currency = ''; // '' = home currency
   final List<String> _newPhotos = []; // base64 JPEG, saved with the txn
@@ -329,7 +346,7 @@ class _TxnFormState extends State<TxnForm> {
     for (final p in _newPhotos) {
       await s.addAttachment(id, p);
     }
-    if (mounted) Navigator.pop(context);
+    if (mounted) Navigator.pop(context, true);
   }
 
   Future<void> _pasteSms() async {
@@ -381,7 +398,10 @@ class _TxnFormState extends State<TxnForm> {
       _amount.text = p.amount == p.amount!.roundToDouble()
           ? p.amount!.toStringAsFixed(0)
           : p.amount!.toString();
-      if (p.merchant != null) _note.text = p.merchant!;
+      if (p.merchant != null) {
+        _note.text = p.merchant!;
+        _recall(s, p.merchant!, rebuild: false);
+      }
       if (p.date != null) _date = p.date!;
       if (p.last4 != null) {
         for (final a in s.accounts) {
@@ -391,6 +411,17 @@ class _TxnFormState extends State<TxnForm> {
     });
     toast(context,
         'Filled from SMS: ${p.type == TxType.income ? 'income' : 'expense'} ${p.currency ?? ''} ${p.amount}');
+  }
+
+  /// Same description as before → same category, unless picked by hand.
+  void _recall(AppState s, String note, {bool rebuild = true}) {
+    if (_categoryId != null && !_categoryAuto) return;
+    final id = s.recalledCategory(note);
+    if (id == null || s.category(id)?.type != _type) return;
+    if (id == _categoryId) return;
+    _categoryId = id;
+    _categoryAuto = true;
+    if (rebuild) setState(() {});
   }
 
   Future<void> _addPhoto(ImageSource src) async {
@@ -428,11 +459,11 @@ class _TxnFormState extends State<TxnForm> {
             IconButton(
               icon: const Icon(Icons.delete_outline_rounded),
               onPressed: () async {
-                if (await confirm(
-                    context, 'Delete transaction?', 'This can\'t be undone.')) {
-                  await s.deleteTxn(widget.txn!);
-                  if (context.mounted) Navigator.pop(context);
-                }
+                final messenger = ScaffoldMessenger.of(context);
+                final st = context.read<AppState>();
+                Navigator.pop(context);
+                await deleteWithUndo(context, widget.txn!,
+                    messenger: messenger, state: st);
               },
             ),
         ],
@@ -510,8 +541,13 @@ class _TxnFormState extends State<TxnForm> {
             TextFormField(
               controller: _note,
               textCapitalization: TextCapitalization.sentences,
-              decoration: const InputDecoration(
-                  labelText: 'Description', hintText: 'e.g. Imtiaz groceries'),
+              onChanged: (v) => _recall(s, v),
+              decoration: InputDecoration(
+                  labelText: 'Description',
+                  hintText: 'e.g. Imtiaz groceries',
+                  helperText: _categoryAuto && _categoryId != null
+                      ? 'Category picked from last time: ${s.category(_categoryId)?.name ?? ''}'
+                      : null),
             ),
             const SizedBox(height: 12),
             DateField(
@@ -537,7 +573,10 @@ class _TxnFormState extends State<TxnForm> {
             CategoryPicker(
               categories: s.categoriesOf(_type),
               selected: _categoryId,
-              onSelected: (id) => setState(() => _categoryId = id),
+              onSelected: (id) => setState(() {
+                _categoryId = id;
+                _categoryAuto = false;
+              }),
             ),
             const SizedBox(height: 20),
             Row(

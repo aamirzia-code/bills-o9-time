@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'features/daily_models.dart';
 import 'i18n.dart';
 import 'models.dart';
 import 'notifications.dart';
@@ -29,6 +30,13 @@ class AppState extends ChangeNotifier {
   List<Committee> committees = [];
   List<SeasonPlan> seasons = [];
   List<Attachment> attachments = [];
+  List<Person> people = [];
+  List<Iou> ious = [];
+  List<ShopList> lists = [];
+  List<ListItem> listItems = [];
+  List<Renewal> renewals = [];
+  List<MeterReading> readings = [];
+  List<FuelLog> fuelLogs = [];
 
   /// Small preferences stored as one JSON setting (included in backups).
   Map<String, dynamic> prefs = {};
@@ -111,6 +119,27 @@ class AppState extends ChangeNotifier {
         Attachment(r['id'] as int, r['txn_id'] as int,
             DateTime.fromMillisecondsSinceEpoch(r['created'] as int)),
     ];
+    people = (await _db.all('people', orderBy: 'name COLLATE NOCASE'))
+        .map(Person.fromMap)
+        .toList();
+    ious = (await _db.all('ious', orderBy: 'date DESC, id DESC'))
+        .map(Iou.fromMap)
+        .toList();
+    lists = (await _db.all('lists', orderBy: 'created DESC'))
+        .map(ShopList.fromMap)
+        .toList();
+    listItems = (await _db.all('list_items', orderBy: 'done, id'))
+        .map(ListItem.fromMap)
+        .toList();
+    renewals = (await _db.all('renewals', orderBy: 'expiry'))
+        .map(Renewal.fromMap)
+        .toList();
+    readings = (await _db.all('meter_readings', orderBy: 'date DESC, id DESC'))
+        .map(MeterReading.fromMap)
+        .toList();
+    fuelLogs = (await _db.all('fuel_logs', orderBy: 'date DESC, id DESC'))
+        .map(FuelLog.fromMap)
+        .toList();
     loaded = true;
     notifyListeners();
     if (!_autoPayRan) {
@@ -375,6 +404,19 @@ class AppState extends ChangeNotifier {
     await load();
   }
 
+  /// Deletes [t] and returns a function that puts it back (with photos).
+  Future<Future<void> Function()> deleteTxnWithUndo(Txn t) async {
+    final photos = await _db.where('attachments', 'txn_id = ?', [t.id]);
+    await deleteTxn(t);
+    return () async {
+      await _db.restore('txns', t.toMap());
+      for (final p in photos) {
+        await _db.restore('attachments', p);
+      }
+      await load();
+    };
+  }
+
   Future<void> deleteTxn(Txn t) async {
     await _db.deleteWhere('attachments', 'txn_id = ?', [t.id]);
     await _db.delete('txns', t.id!);
@@ -496,6 +538,61 @@ class AppState extends ChangeNotifier {
     await load();
   }
 
+  // Generic rows for the everyday tools ------------------------------------
+
+  /// Inserts (no id) or updates (with id) a row and reloads. Returns the id.
+  Future<int> putRow(String table, Map<String, Object?> m) async {
+    int id;
+    if (m['id'] == null) {
+      id = await _db.insert(table, m);
+    } else {
+      id = m['id'] as int;
+      await _db.update(table, m);
+    }
+    await load();
+    return id;
+  }
+
+  Future<void> removeRow(String table, int id) async {
+    await _db.delete(table, id);
+    await load();
+  }
+
+  Future<void> removeWhere(String table, String where, List<Object?> args) async {
+    await _db.deleteWhere(table, where, args);
+    await load();
+  }
+
+  double personBalance(int personId) => ious
+      .where((i) => i.personId == personId)
+      .fold(0.0, (s, i) => s + i.amount);
+
+  /// Remembers which category a description belongs to.
+  Future<void> rememberCategory(String note, int? categoryId) async {
+    final key = categoryKey(note);
+    if (key.isEmpty || categoryId == null) return;
+    final mem = Map<String, dynamic>.from(prefs['catMemory'] as Map? ?? {});
+    if (mem[key] == categoryId) return;
+    mem[key] = categoryId;
+    if (mem.length > 400) mem.remove(mem.keys.first);
+    await setPref('catMemory', mem);
+  }
+
+  int? recalledCategory(String note) {
+    final key = categoryKey(note);
+    if (key.isEmpty) return null;
+    final v = (prefs['catMemory'] as Map?)?[key];
+    return v is int && category(v) != null ? v : null;
+  }
+
+  static String categoryKey(String note) => note
+      .toLowerCase()
+      .replaceAll(RegExp(r'[^a-z0-9\u0600-\u06ff ]'), ' ')
+      .split(RegExp(r'\s+'))
+      .where((w) => w.length > 1 && !RegExp(r'^\d+$').hasMatch(w))
+      .take(2)
+      .join(' ');
+
   // Committees, seasonal plans, receipts ------------------------------------
 
   Future<void> saveCommittee(Committee c) async {
@@ -565,6 +662,7 @@ class AppState extends ChangeNotifier {
 
   /// Saves a transaction and returns its id.
   Future<int> saveTxnReturningId(Txn t) async {
+    await rememberCategory(t.note, t.categoryId);
     int id;
     if (t.id == null) {
       id = await _db.insert('txns', t.toMap());

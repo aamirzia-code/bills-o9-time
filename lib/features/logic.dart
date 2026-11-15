@@ -297,3 +297,127 @@ ZakatResult computeZakat({
   final due = nisab > 0 && net >= nisab;
   return ZakatResult(assets, liabilities, net, nisab, due, due ? net * 0.025 : 0);
 }
+
+// ------------------------------------------------------------ Quick entry
+
+class QuickEntry {
+  final double? amount;
+  final TxType type;
+  final int? categoryId;
+  final int? accountId;
+  final DateTime date;
+  final String note;
+  const QuickEntry(this.amount, this.type, this.categoryId, this.accountId,
+      this.date, this.note);
+}
+
+/// Words that point to a seeded category name.
+const _categoryHints = <String, List<String>>{
+  'Fuel': ['petrol', 'fuel', 'diesel', 'cng', 'shell', 'pso', 'total parco'],
+  'Groceries': ['grocery', 'groceries', 'imtiaz', 'carrefour', 'naheed', 'chase', 'metro', 'milk', 'bread', 'eggs', 'vegetables', 'sabzi', 'fruit', 'atta', 'rashan', 'ration', 'lulu', 'spinneys', 'panda'],
+  'Food & Dining': ['lunch', 'dinner', 'breakfast', 'food', 'restaurant', 'kfc', 'mcdonalds', 'pizza', 'burger', 'chai', 'tea', 'coffee', 'biryani', 'foodpanda', 'talabat', 'cafe', 'shawarma'],
+  'Transport': ['uber', 'careem', 'bykea', 'indrive', 'indriver', 'rickshaw', 'taxi', 'bus', 'metro bus', 'parking', 'toll', 'train'],
+  'Health': ['medicine', 'pharmacy', 'doctor', 'clinic', 'hospital', 'lab', 'dawai', 'medical'],
+  'Education': ['school', 'fee', 'fees', 'tuition', 'books', 'university', 'course', 'academy'],
+  'Mobile': ['mobile', 'load', 'easyload', 'jazz', 'zong', 'telenor', 'ufone', 'du', 'etisalat', 'recharge', 'package'],
+  'Electricity': ['electricity', 'k-electric', 'kelectric', 'ke bill', 'wapda', 'lesco', 'iesco', 'mepco', 'fesco', 'dewa', 'bijli'],
+  'Gas': ['gas', 'sngpl', 'ssgc', 'lpg', 'cylinder'],
+  'Water': ['water', 'kwsb', 'tanker', 'mineral water'],
+  'Internet': ['internet', 'wifi', 'ptcl', 'nayatel', 'stormfiber', 'fiber', 'broadband'],
+  'Shopping': ['shopping', 'clothes', 'shoes', 'daraz', 'amazon', 'mall', 'gift'],
+  'Entertainment': ['movie', 'cinema', 'netflix', 'game', 'outing'],
+  'Rent': ['rent', 'kiraya'],
+  'Family': ['family', 'kids', 'parents', 'ammi', 'abbu'],
+  'Salary': ['salary', 'tankhwa', 'pay'],
+};
+
+/// Understands short notes like "500 petrol cash", "lunch 1.2k yesterday",
+/// "salary 150000", "Rs 2,000 to Ali for dinner".
+QuickEntry parseQuickEntry(
+  String text, {
+  required List<TxCategory> categories,
+  required List<Account> accounts,
+  int? Function(String note)? recall,
+  DateTime? now,
+}) {
+  final n = now ?? DateTime.now();
+  var t = ' ${text.trim()} ';
+  final lower = t.toLowerCase();
+
+  double? amount;
+  final m = RegExp(r'(?:rs\.?|pkr|aed|sar|\$)?\s*(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|lac|lakh|m)?\b',
+          caseSensitive: false)
+      .firstMatch(t);
+  if (m != null) {
+    amount = double.tryParse(m.group(1)!.replaceAll(',', ''));
+    final mult = (m.group(2) ?? '').toLowerCase();
+    if (amount != null) {
+      if (mult == 'k' || mult == 'thousand') amount *= 1000;
+      if (mult == 'lac' || mult == 'lakh') amount *= 100000;
+      if (mult == 'm') amount *= 1000000;
+    }
+    t = t.replaceRange(m.start, m.end, ' ');
+  }
+
+  final income = RegExp(r'\b(salary|income|received|got|bonus|profit|refund|credited)\b')
+      .hasMatch(lower);
+  final type = income ? TxType.income : TxType.expense;
+
+  var date = DateTime(n.year, n.month, n.day, 12);
+  if (RegExp(r'\byesterday\b|\bkal\b').hasMatch(lower)) {
+    date = date.subtract(const Duration(days: 1));
+  } else if (RegExp(r'\bday before\b|\bparson\b').hasMatch(lower)) {
+    date = date.subtract(const Duration(days: 2));
+  }
+  t = t.replaceAll(
+      RegExp(r'\b(today|yesterday|kal|parson|day before)\b', caseSensitive: false), ' ');
+
+  int? accountId;
+  for (final a in accounts) {
+    final name = a.name.toLowerCase();
+    if (name.isNotEmpty && RegExp('\\b${RegExp.escape(name)}\\b').hasMatch(lower)) {
+      accountId = a.id;
+      t = t.replaceAll(RegExp('\\b${RegExp.escape(a.name)}\\b', caseSensitive: false), ' ');
+      break;
+    }
+  }
+  if (accountId == null) {
+    final kind = RegExp(r'\b(cash|card|bank|wallet)\b').firstMatch(lower)?.group(1);
+    if (kind != null) {
+      for (final a in accounts) {
+        if (a.kind.toLowerCase() == kind) {
+          accountId = a.id;
+          break;
+        }
+      }
+    }
+  }
+
+  t = t.replaceAll(RegExp(r'\b(from|via|with|by|paid|spent|on|for|in)\b', caseSensitive: false), ' ');
+  final note = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+  int? categoryId = recall?.call(note);
+  if (categoryId == null) {
+    final want = type == TxType.income ? TxType.income : TxType.expense;
+    String? hit;
+    _categoryHints.forEach((cat, words) {
+      if (hit != null) return;
+      for (final w in words) {
+        if (RegExp('\\b${RegExp.escape(w)}\\b').hasMatch(lower)) {
+          hit = cat;
+          return;
+        }
+      }
+    });
+    for (final c in categories) {
+      if (c.type != want) continue;
+      if ((hit != null && c.name == hit) ||
+          (hit == null && note.isNotEmpty && lower.contains(c.name.toLowerCase()))) {
+        categoryId = c.id;
+        break;
+      }
+    }
+  }
+  final pretty = note.isEmpty ? note : note[0].toUpperCase() + note.substring(1);
+  return QuickEntry(amount, type, categoryId, accountId, date, pretty);
+}

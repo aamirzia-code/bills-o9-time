@@ -9,9 +9,12 @@ import '../utils.dart';
 import '../widgets.dart';
 import 'committees.dart';
 import 'logic.dart';
+import 'meters.dart';
+import 'people.dart';
+import 'renewals.dart';
 import 'zakat.dart';
 
-enum AlertKind { overdue, due, budget, committee, zakat, subscription }
+enum AlertKind { overdue, due, budget, committee, zakat, subscription, renewal, meter, people }
 
 class AppAlert {
   final String id;
@@ -23,6 +26,7 @@ class AppAlert {
   final Bill? bill;
   final SubscriptionGuess? guess;
   final Committee? committee;
+  final WidgetBuilder? open;
   const AppAlert({
     required this.id,
     required this.kind,
@@ -33,6 +37,7 @@ class AppAlert {
     this.bill,
     this.guess,
     this.committee,
+    this.open,
   });
 }
 
@@ -188,6 +193,59 @@ List<AppAlert> computeAlerts(AppState s) {
     }
   }
 
+  for (final r in s.renewals) {
+    final d = r.daysLeft(now);
+    if (d > r.remindDays) continue;
+    out.add(AppAlert(
+      id: 'renew-${r.id}-${r.expiry.millisecondsSinceEpoch}',
+      kind: AlertKind.renewal,
+      icon: renewalKind(r.kind).icon,
+      color: expiryColor(d),
+      title: d < 0
+          ? '${r.name} expired'
+          : d == 0
+              ? '${r.name} expires today'
+              : '${r.name} expires in $d day${d == 1 ? '' : 's'}',
+      subtitle: '${Fmt.date(r.expiry)}${r.cost > 0 ? ' · ${Fmt.money(r.cost)}' : ''}',
+      open: (_) => const RenewalsScreen(),
+    ));
+  }
+
+  for (final k in kMeters) {
+    final c = meterCycle(s, k, now: now);
+    if (c == null || !c.overLimitRisk) continue;
+    out.add(AppAlert(
+      id: 'meter-${k.id}-${c.start.millisecondsSinceEpoch}-${c.used >= c.limit ? 'over' : 'pace'}',
+      kind: AlertKind.meter,
+      icon: k.icon,
+      color: c.used >= c.limit ? _red : _amber,
+      title: c.used >= c.limit
+          ? '${k.label} crossed ${c.limit.toStringAsFixed(0)} ${k.unit}'
+          : '${k.label} on pace for ${c.projected.toStringAsFixed(0)} ${k.unit}',
+      subtitle: '${c.used.toStringAsFixed(0)} used so far · limit ${c.limit.toStringAsFixed(0)}',
+      open: (_) => const MetersScreen(),
+    ));
+  }
+
+  if (s.pref<bool>('udhaarNudge', true)) {
+    for (final p in s.people) {
+      final b = s.personBalance(p.id!);
+      if (b < 1) continue;
+      final lastEntry = s.ious.where((i) => i.personId == p.id).map((i) => i.date).fold<DateTime?>(
+          null, (a, d) => a == null || d.isAfter(a) ? d : a);
+      if (lastEntry == null || today.difference(lastEntry).inDays < 30) continue;
+      out.add(AppAlert(
+        id: 'udhaar-${p.id}-${lastEntry.millisecondsSinceEpoch}',
+        kind: AlertKind.people,
+        icon: Icons.people_alt_rounded,
+        color: kBlue,
+        title: '${p.name} owes you ${Fmt.money(b)}',
+        subtitle: 'For over a month · send a friendly reminder',
+        open: (_) => PersonDetail(id: p.id!),
+      ));
+    }
+  }
+
   if (s.pref<bool>('subscriptionTips', true)) {
     for (final g in findSubscriptions(s.txns, s.bills).take(3)) {
       out.add(AppAlert(
@@ -322,6 +380,12 @@ class AlertsScreen extends StatelessWidget {
                                       MaterialPageRoute(
                                           builder: (_) => CommitteeDetail(
                                               id: a.committee!.id!))),
+                                  child: const Text('Open'),
+                                ),
+                              if (a.open != null)
+                                TextButton(
+                                  onPressed: () => Navigator.push(context,
+                                      MaterialPageRoute(builder: a.open!)),
                                   child: const Text('Open'),
                                 ),
                               if (a.kind == AlertKind.zakat)

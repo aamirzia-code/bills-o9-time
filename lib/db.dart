@@ -107,6 +107,59 @@ class AppDb {
     await d.insert('goal_entries', {'goal_id': debt, 'amount': 90000.0, 'date': on(-1, 3).millisecondsSinceEpoch, 'note': ''});
     await d.insert('settings', {'key': 'name', 'value': 'Aamir'},
         conflictAlgorithm: ConflictAlgorithm.replace);
+
+    // Everyday tools
+    int ms(DateTime x) => x.millisecondsSinceEpoch;
+    DateTime ago(int days) => now.subtract(Duration(days: days));
+    final ali = await d.insert('people', {'name': 'Ali', 'phone': '', 'color': 0xFF2563EB});
+    final sara = await d.insert('people', {'name': 'Sara', 'phone': '', 'color': 0xFFDB2777});
+    final usman = await d.insert('people', {'name': 'Usman', 'phone': '', 'color': 0xFF16A34A});
+    for (final x in [
+      [ali, 2400.0, 'Dinner at Monal', 'Weekend', 0, 12],
+      [sara, 1800.0, 'Cinema tickets', '', 0, 5],
+      [usman, -5000.0, 'Borrowed', '', 1, 40],
+      [ali, 15000.0, 'Lent', '', 1, 45],
+    ]) {
+      await d.insert('ious', {
+        'person_id': x[0], 'amount': x[1], 'note': x[2], 'grp': x[3],
+        'kind': x[4], 'date': ms(ago(x[5] as int)),
+      });
+    }
+    final list = await d.insert('lists', {'name': 'Monthly ration', 'created': ms(ago(2))});
+    for (final x in [
+      ['Atta 10kg', 1, 1450.0, 1], ['Cooking oil', 2, 620.0, 1], ['Rice', 1, 0.0, 0],
+      ['Daal', 2, 0.0, 0], ['Tea', 1, 0.0, 0], ['Eggs', 1, 0.0, 0],
+    ]) {
+      await d.insert('list_items', {
+        'list_id': list, 'name': x[0], 'qty': (x[1] as int).toDouble(), 'price': x[2],
+        'done': x[3], 'created': ms(ago(2)),
+      });
+    }
+    for (final x in [
+      ['Car token tax', 'vehicle', 9, 14, 4200.0, 1],
+      ['Car insurance', 'insurance', 70, 30, 38000.0, 1],
+      ['Fridge warranty', 'warranty', 220, 30, 0.0, 0],
+      ['Passport', 'passport', 400, 60, 0.0, 5],
+    ]) {
+      await d.insert('renewals', {
+        'name': x[0], 'kind': x[1], 'expiry': ms(now.add(Duration(days: x[2] as int))),
+        'remind_days': x[3], 'cost': x[4], 'every_years': x[5], 'notes': '',
+      });
+    }
+    final start = DateTime(now.year, now.month, 1);
+    final elapsed = now.difference(start).inDays.clamp(1, 31);
+    for (var i = 0; i <= elapsed; i += 4) {
+      await d.insert('meter_readings', {
+        'meter': 'electricity', 'date': ms(start.add(Duration(days: i))),
+        'reading': 18240.0 + i * 7.4,
+      });
+    }
+    for (final x in [[40, 30.0, 12100.0], [25, 28.0, 12480.0], [9, 27.0, 12860.0]]) {
+      await d.insert('fuel_logs', {
+        'vehicle': 'Civic', 'date': ms(ago(x[0] as int)), 'litres': x[1], 'price': 272.0,
+        'odometer': x[2], 'txn_id': null,
+      });
+    }
   }
 
   Future<Database> _open() async {
@@ -117,7 +170,7 @@ class AppDb {
     return factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-      version: 4,
+      version: 5,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, v) async {
         await db.execute('''
@@ -167,6 +220,7 @@ class AppDb {
         await db.execute('''
           CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)''');
         await _createV4(db);
+        await _createV5(db);
         await _seed(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -199,6 +253,9 @@ class AppDb {
           await db.execute('ALTER TABLE bills ADD COLUMN ref_no TEXT');
           await _createV4(db);
         }
+        if (oldV < 5) {
+          await _createV5(db);
+        }
       },
       ),
     );
@@ -221,6 +278,21 @@ class AppDb {
       CREATE TABLE IF NOT EXISTS attachments(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         txn_id INTEGER NOT NULL, data TEXT NOT NULL, created INTEGER NOT NULL)''');
+  }
+
+  /// v5: people & IOUs, shopping lists, renewals, meter readings, fuel log.
+  static Future<void> _createV5(Database db) async {
+    for (final sql in [
+      'CREATE TABLE IF NOT EXISTS people(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, phone TEXT, color INTEGER NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS ious(id INTEGER PRIMARY KEY AUTOINCREMENT, person_id INTEGER NOT NULL, amount REAL NOT NULL, note TEXT, date INTEGER NOT NULL, grp TEXT, kind INTEGER NOT NULL DEFAULT 0)',
+      'CREATE TABLE IF NOT EXISTS lists(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, created INTEGER NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS list_items(id INTEGER PRIMARY KEY AUTOINCREMENT, list_id INTEGER NOT NULL, name TEXT NOT NULL, qty REAL NOT NULL DEFAULT 1, price REAL NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS renewals(id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, kind TEXT NOT NULL, expiry INTEGER NOT NULL, remind_days INTEGER NOT NULL DEFAULT 14, cost REAL NOT NULL DEFAULT 0, every_years INTEGER NOT NULL DEFAULT 1, notes TEXT)',
+      'CREATE TABLE IF NOT EXISTS meter_readings(id INTEGER PRIMARY KEY AUTOINCREMENT, meter TEXT NOT NULL, date INTEGER NOT NULL, reading REAL NOT NULL)',
+      'CREATE TABLE IF NOT EXISTS fuel_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, vehicle TEXT NOT NULL, date INTEGER NOT NULL, litres REAL NOT NULL, price REAL NOT NULL, odometer REAL NOT NULL DEFAULT 0, txn_id INTEGER)',
+    ]) {
+      await db.execute(sql);
+    }
   }
 
   Future<void> _seed(Database db) async {
@@ -301,6 +373,15 @@ class AppDb {
         .update(table, data, where: 'id = ?', whereArgs: [data['id']]);
   }
 
+  Future<List<Map<String, Object?>>> where(
+          String table, String where, List<Object?> args) async =>
+      (await db).query(table, where: where, whereArgs: args);
+
+  /// Insert keeping the given id (used by undo).
+  Future<void> restore(String table, Map<String, Object?> data) async {
+    await (await db).insert(table, data);
+  }
+
   Future<void> delete(String table, int id) async {
     await (await db).delete(table, where: 'id = ?', whereArgs: [id]);
   }
@@ -342,6 +423,13 @@ class AppDb {
     'committees',
     'seasons',
     'attachments',
+    'people',
+    'ious',
+    'lists',
+    'list_items',
+    'renewals',
+    'meter_readings',
+    'fuel_logs',
     'settings',
   ];
 
@@ -371,7 +459,7 @@ class AppDb {
     }
     return {
       'v': 1,
-      'db': 4,
+      'db': 5,
       'at': DateTime.now().toUtc().toIso8601String(),
       't': tables,
     };
@@ -416,7 +504,7 @@ class AppDb {
 
   Future<void> wipe() async {
     final d = await db;
-    for (final t in ['attachments', 'txns', 'bills', 'budgets', 'goal_entries', 'goals', 'committees', 'seasons']) {
+    for (final t in ['attachments', 'txns', 'bills', 'budgets', 'goal_entries', 'goals', 'committees', 'seasons', 'ious', 'people', 'list_items', 'lists', 'renewals', 'meter_readings', 'fuel_logs']) {
       await d.delete(t);
     }
   }

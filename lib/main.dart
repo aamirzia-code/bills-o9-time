@@ -1,9 +1,12 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 
 import 'app_state.dart';
 import 'features/lock.dart';
+import 'features/onboarding.dart';
+import 'features/people.dart';
 import 'i18n.dart';
 import 'notifications.dart';
 import 'screens/accounts_screen.dart';
@@ -59,8 +62,45 @@ class BillsApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      builder: (context, child) => LockGate(child: child!),
+      builder: (context, child) => Responsive(child: LockGate(child: child!)),
       home: const Shell(),
+    );
+  }
+}
+
+/// On tablets and desktop browsers, keep the app phone-shaped and centred
+/// instead of stretching cards across the whole screen.
+class Responsive extends StatelessWidget {
+  final Widget child;
+  const Responsive({super.key, required this.child});
+
+  static const maxWidth = 760.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final mq = MediaQuery.of(context);
+    if (mq.size.width <= maxWidth + 40) return child;
+    final cs = Theme.of(context).colorScheme;
+    return ColoredBox(
+      color: Color.alphaBlend(cs.onSurface.withOpacity(0.04), cs.surface),
+      child: Center(
+        child: Container(
+          width: maxWidth,
+          decoration: BoxDecoration(
+            border: Border.symmetric(
+                vertical: BorderSide(color: cs.outlineVariant.withOpacity(0.6))),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.12), blurRadius: 30),
+            ],
+          ),
+          child: ClipRect(
+            child: MediaQuery(
+              data: mq.copyWith(size: Size(maxWidth, mq.size.height)),
+              child: child,
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -88,6 +128,15 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    // A friend's shared Split & Udhaar link: ?ledger=…
+    final ledger = kIsWeb ? Uri.base.queryParameters['ledger'] : null;
+    if (ledger != null && ledger.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => LedgerImportScreen(encoded: ledger)));
+      });
+    }
   }
 
   @override
@@ -110,7 +159,12 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final overdue = context.watch<AppState>().overdueBills.length;
+    final st = context.watch<AppState>();
+    if (OnboardingScreen.needed(st) &&
+        !(kIsWeb && Uri.base.queryParameters.containsKey('ledger'))) {
+      return const OnboardingScreen();
+    }
+    final overdue = st.overdueBills.length;
     context.select<AppState, String>((s) => s.lang); // rebuild labels
     final pages = [
       HomeScreen(onNavigate: (i, {int? billsTab}) => goTo(i, billsTab: billsTab)),

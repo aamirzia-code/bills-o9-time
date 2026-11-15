@@ -13,10 +13,9 @@ import '../sync/cloud_providers.dart';
 import '../sync/sync_service.dart';
 import 'backup_screen.dart';
 import '../features/alerts.dart';
-import '../features/committees.dart';
+import '../features/quick_add.dart';
+import '../features/tools_hub.dart';
 import '../features/currency.dart';
-import '../features/seasons.dart';
-import '../features/zakat.dart';
 import '../i18n.dart';
 import 'bill_form.dart';
 import 'settings_screen.dart';
@@ -136,53 +135,8 @@ class HomeScreen extends StatelessWidget {
   }
 }
 
-/// "+" sheet: add expense, income or bill.
-Future<void> showAddSheet(BuildContext context) => showModalBottomSheet(
-      context: context,
-      showDragHandle: true,
-      builder: (ctx) {
-        Widget item(IconData icon, Color color, String title, String sub,
-                VoidCallback go) =>
-            ListTile(
-              leading: CircleAvatar(
-                backgroundColor: color.withOpacity(0.15),
-                child: Icon(icon, color: color),
-              ),
-              title: Text(title,
-                  style: const TextStyle(fontWeight: FontWeight.w700)),
-              subtitle: Text(sub),
-              onTap: () {
-                Navigator.pop(ctx);
-                go();
-              },
-            );
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                item(Icons.receipt_long_rounded, kBlue, 'Bill',
-                    'Recurring or one-time bill with reminders', () {
-                  Navigator.push(context,
-                      MaterialPageRoute(builder: (_) => const BillForm()));
-                }),
-                item(Icons.north_east_rounded, _red, tr('Expense'),
-                    'Something you spent',
-                    () => openTxnForm(context, type: TxType.expense)),
-                item(Icons.sms_outlined, const Color(0xFF8B5CF6),
-                    tr('Paste bank SMS'),
-                    'Copy a bank or wallet alert and paste it',
-                    () => openTxnForm(context, pasteSms: true)),
-                item(Icons.south_west_rounded, const Color(0xFF22C55E),
-                    'Income', 'Salary, business or other income',
-                    () => openTxnForm(context, type: TxType.income)),
-              ],
-            ),
-          ),
-        );
-      },
-    );
+/// "+" sheet: smart one-line entry, one-tap repeats and every add action.
+Future<void> showAddSheet(BuildContext context) => showQuickAdd(context);
 
 // ------------------------------------------------------------ Spending card
 
@@ -714,41 +668,40 @@ class _ToolsRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final s = context.watch<AppState>();
     final cs = Theme.of(context).colorScheme;
-    Widget tool(IconData icon, Color color, String label, Widget Function() page) =>
+    Widget tile(IconData icon, Color color, String label, WidgetBuilder page, {int badge = 0}) =>
         Expanded(
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: AppCard(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              onTap: () => Navigator.push(
-                  context, MaterialPageRoute(builder: (_) => page())),
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: page)),
               child: Column(
                 children: [
-                  Icon(icon, color: color),
+                  Badge(
+                    isLabelVisible: badge > 0,
+                    label: Text('$badge'),
+                    child: Icon(icon, color: color),
+                  ),
                   const SizedBox(height: 6),
                   Text(label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w600,
-                          color: cs.onSurface)),
+                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: cs.onSurface)),
                 ],
               ),
             ),
           ),
         );
+    final owed = s.people.where((p) => s.personBalance(p.id!) > 0.5).length;
+    final expiring = s.renewals.where((r) => r.daysLeft() <= r.remindDays).length;
+    int badgeFor(String id) => id == 'people' ? owed : id == 'renewals' ? expiring : 0;
     return Row(
       children: [
-        tool(Icons.groups_rounded, const Color(0xFF7C3AED), tr('Committees'),
-            () => const CommitteesScreen()),
-        tool(Icons.volunteer_activism_rounded, const Color(0xFF16A34A),
-            tr('Zakat'), () => const ZakatScreen()),
-        tool(Icons.nightlight_round, const Color(0xFFF5B000),
-            tr('Ramadan & Eid'), () => const SeasonsScreen()),
-        tool(Icons.sms_outlined, kBlue, 'SMS',
-            () => const TxnForm(pasteSms: true)),
+        for (final t in pinnedTools(s).take(4))
+          tile(t.icon, t.color, tr(t.label), t.page, badge: badgeFor(t.id)),
+        tile(Icons.apps_rounded, cs.primary, tr('All tools'), (_) => const ToolsHub()),
       ],
     );
   }
