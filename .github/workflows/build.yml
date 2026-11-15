@@ -8,8 +8,7 @@ on:
 permissions:
   contents: write
 
-env:
-  # Latest stable Flutter (newer engines fix text editing on iPhone Safari)
+# Flutter: latest stable (newer engines fix text editing on iPhone Safari)
 
 jobs:
   android:
