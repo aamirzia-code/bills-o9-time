@@ -68,7 +68,9 @@ class HomeScreen extends StatelessWidget {
                     style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w500,
-                        color: cs.onSurfaceVariant)),
+                        color: (Theme.of(context).appBarTheme.foregroundColor ??
+                                cs.onSurface)
+                            .withOpacity(0.7))),
               ],
             ),
           ],

@@ -24,6 +24,11 @@ List<SubscriptionGuess> findSubscriptions(List<Txn> txns, List<Bill> bills) {
     if (t.type != TxType.expense || t.billId != null) continue;
     final key = t.note.trim().toLowerCase();
     if (key.length < 3 || billNames.contains(key)) continue;
+    // Everyday spending repeats too; only look at subscription-like names.
+    if (RegExp(r'grocer|food|dinner|lunch|fuel|petrol|cloth|shopping|pharmacy|ride|taxi|careem|uber|bykea|milk|bread')
+        .hasMatch(key)) {
+      continue;
+    }
     groups.putIfAbsent(key, () => []).add(t);
   }
   final out = <SubscriptionGuess>[];
@@ -33,7 +38,7 @@ List<SubscriptionGuess> findSubscriptions(List<Txn> txns, List<Bill> bills) {
     final amounts = g.map((t) => t.amount).toList()..sort();
     final median = amounts[amounts.length ~/ 2];
     if (median <= 0) continue;
-    final similar = g.where((t) => (t.amount - median).abs() <= median * 0.15).toList();
+    final similar = g.where((t) => (t.amount - median).abs() <= median * 0.08).toList();
     if (similar.length < 3) continue;
     final gaps = <int>[
       for (var i = 1; i < similar.length; i++)
