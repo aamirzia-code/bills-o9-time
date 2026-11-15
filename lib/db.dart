@@ -170,7 +170,7 @@ class AppDb {
     return factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-      version: 5,
+      version: 6,
       onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
       onCreate: (db, v) async {
         await db.execute('''
@@ -221,6 +221,7 @@ class AppDb {
           CREATE TABLE settings(key TEXT PRIMARY KEY, value TEXT)''');
         await _createV4(db);
         await _createV5(db);
+        await _createV6(db);
         await _seed(db);
       },
       onUpgrade: (db, oldV, newV) async {
@@ -255,6 +256,9 @@ class AppDb {
         }
         if (oldV < 5) {
           await _createV5(db);
+        }
+        if (oldV < 6) {
+          await _createV6(db);
         }
       },
       ),
@@ -292,6 +296,18 @@ class AppDb {
       'CREATE TABLE IF NOT EXISTS fuel_logs(id INTEGER PRIMARY KEY AUTOINCREMENT, vehicle TEXT NOT NULL, date INTEGER NOT NULL, litres REAL NOT NULL, price REAL NOT NULL, odometer REAL NOT NULL DEFAULT 0, txn_id INTEGER)',
     ]) {
       await db.execute(sql);
+    }
+  }
+
+  /// v6: split bills (Splitwise-style), each IOU can belong to one.
+  static Future<void> _createV6(Database db) async {
+    await db.execute(
+        'CREATE TABLE IF NOT EXISTS splits(id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, total REAL NOT NULL, date INTEGER NOT NULL, payer INTEGER NOT NULL DEFAULT -1, mode INTEGER NOT NULL DEFAULT 0, grp TEXT, parts TEXT NOT NULL, settled TEXT)');
+    final cols = {
+      for (final c in await db.rawQuery('PRAGMA table_info(ious)')) c['name'] as String
+    };
+    if (!cols.contains('split_id')) {
+      await db.execute('ALTER TABLE ious ADD COLUMN split_id INTEGER');
     }
   }
 
@@ -424,6 +440,7 @@ class AppDb {
     'seasons',
     'attachments',
     'people',
+    'splits',
     'ious',
     'lists',
     'list_items',
@@ -459,7 +476,7 @@ class AppDb {
     }
     return {
       'v': 1,
-      'db': 5,
+      'db': 6,
       'at': DateTime.now().toUtc().toIso8601String(),
       't': tables,
     };
@@ -504,7 +521,7 @@ class AppDb {
 
   Future<void> wipe() async {
     final d = await db;
-    for (final t in ['attachments', 'txns', 'bills', 'budgets', 'goal_entries', 'goals', 'committees', 'seasons', 'ious', 'people', 'list_items', 'lists', 'renewals', 'meter_readings', 'fuel_logs']) {
+    for (final t in ['attachments', 'txns', 'bills', 'budgets', 'goal_entries', 'goals', 'committees', 'seasons', 'ious', 'splits', 'people', 'list_items', 'lists', 'renewals', 'meter_readings', 'fuel_logs']) {
       await d.delete(t);
     }
   }

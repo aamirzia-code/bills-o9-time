@@ -10,7 +10,7 @@ import '../utils.dart';
 import '../widgets.dart';
 import 'fuel.dart';
 import 'logic.dart';
-import 'people.dart';
+import 'split_bill.dart';
 import 'shopping.dart';
 
 const _red = Color(0xFFEF4444);

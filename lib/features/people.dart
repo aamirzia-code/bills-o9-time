@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -11,6 +13,7 @@ import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
 import 'daily_models.dart';
+import 'split_bill.dart';
 
 const _green = Color(0xFF22C55E);
 const _red = Color(0xFFEF4444);
@@ -50,7 +53,7 @@ class PeopleScreen extends StatelessWidget {
         onPressed: () => Navigator.push(
             context, MaterialPageRoute(builder: (_) => const SplitForm())),
         icon: const Icon(Icons.call_split_rounded),
-        label: const Text('Split / lend'),
+        label: const Text('Split a bill'),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
@@ -62,6 +65,10 @@ class PeopleScreen extends StatelessWidget {
               Expanded(child: _total(context, 'You owe', iOwe, _red)),
             ],
           ),
+          if (s.splits.isNotEmpty) ...[
+            const SectionTitle('Recent splits'),
+            for (final b in s.splits.take(5)) SplitTile(b),
+          ],
           if (s.people.isEmpty)
             const EmptyState(
               icon: Icons.people_alt_rounded,
@@ -356,7 +363,8 @@ class PersonDetail extends StatelessWidget {
           for (final i in entries)
             Dismissible(
               key: ValueKey('iou-${i.id}'),
-              direction: DismissDirection.endToStart,
+              // Entries that belong to a split are changed from the split.
+              direction: i.splitId == null ? DismissDirection.endToStart : DismissDirection.none,
               background: Container(
                 alignment: Alignment.centerRight,
                 padding: const EdgeInsets.only(right: 18),
@@ -367,6 +375,10 @@ class PersonDetail extends StatelessWidget {
                 padding: const EdgeInsets.only(bottom: 8),
                 child: AppCard(
                   padding: const EdgeInsets.all(12),
+                  onTap: i.splitId != null && s.splitById(i.splitId!) != null
+                      ? () => Navigator.push(context,
+                          MaterialPageRoute(builder: (_) => SplitDetail(id: i.splitId!)))
+                      : null,
                   child: Row(
                     children: [
                       Icon(
@@ -428,14 +440,12 @@ class PersonDetail extends StatelessWidget {
               },
             ),
             ListTile(
-              leading: const Icon(Icons.link_rounded),
-              title: const Text('Share as link'),
-              subtitle: const Text(
-                  'If they use Bills O9, the link adds this ledger to their app'),
+              leading: const Icon(Icons.picture_as_pdf_rounded, color: _red),
+              title: const Text('Statement as PDF'),
+              subtitle: const Text('Every entry and the balance, ready to send'),
               onTap: () {
                 Navigator.pop(ctx);
-                Share.share(
-                    '${reminderText(s, p)}\n\nOpen in Bills O9 Time: ${shareLink(s, p)}');
+                sharePersonStatement(context, s, p);
               },
             ),
             ListTile(
@@ -455,353 +465,68 @@ class PersonDetail extends StatelessWidget {
   }
 }
 
-/// Split an expense with people, or record money lent / borrowed.
-class SplitForm extends StatefulWidget {
-  final int? personId;
-  final bool loan;
-  const SplitForm({super.key, this.personId, this.loan = false});
-
-  @override
-  State<SplitForm> createState() => _SplitFormState();
-}
-
-enum _SplitMode { equal, exact, percent }
-
-class _SplitFormState extends State<SplitForm> {
-  final _key = GlobalKey<FormState>();
-  final _amount = TextEditingController();
-  final _note = TextEditingController();
-  final _group = TextEditingController();
-  final _newPerson = TextEditingController();
-  late bool _loan = widget.loan;
-  bool _iPaid = true; // split: I paid / they paid
-  bool _iLent = true; // loan: I lent / I borrowed
-  int? _payer; // person id when someone else paid
-  bool _includeMe = true;
-  bool _recordMyShare = true;
-  _SplitMode _mode = _SplitMode.equal;
-  final Set<int> _selected = {};
-  final Map<int, TextEditingController> _custom = {};
-  DateTime _date = DateTime.now();
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.personId != null) _selected.add(widget.personId!);
-  }
-
-  @override
-  void dispose() {
-    for (final c in [_amount, _note, _group, _newPerson, ..._custom.values]) {
-      c.dispose();
-    }
-    super.dispose();
-  }
-
-  TextEditingController _ctl(int id) =>
-      _custom.putIfAbsent(id, () => TextEditingController());
-
-  Future<void> _addPerson(AppState s) async {
-    final name = _newPerson.text.trim();
-    if (name.isEmpty) return;
-    final id = await s.putRow(
-        'people',
-        Person(name: name, color: kPalette[s.people.length % kPalette.length])
-            .toMap());
-    _newPerson.clear();
-    setState(() => _selected.add(id));
-  }
-
-  /// Share of each selected person (and me) of [total].
-  Map<int, double>? _shares(double total) {
-    final ids = _selected.toList();
-    final n = ids.length + (_includeMe ? 1 : 0);
-    if (n == 0) return null;
-    switch (_mode) {
-      case _SplitMode.equal:
-        final each = total / n;
-        return {for (final id in ids) id: each, if (_includeMe) -1: each};
-      case _SplitMode.exact:
-        final m = {for (final id in ids) id: double.tryParse(_ctl(id).text) ?? 0};
-        final rest = total - m.values.fold(0.0, (a, b) => a + b);
-        if (_includeMe) m[-1] = rest;
-        return m;
-      case _SplitMode.percent:
-        final m = {
-          for (final id in ids) id: total * (double.tryParse(_ctl(id).text) ?? 0) / 100
-        };
-        final rest = total - m.values.fold(0.0, (a, b) => a + b);
-        if (_includeMe) m[-1] = rest;
-        return m;
-    }
-  }
-
-  Future<void> _save(AppState s) async {
-    if (!_key.currentState!.validate()) return;
-    if (_selected.isEmpty) {
-      toast(context, 'Pick at least one person');
-      return;
-    }
-    final total = double.parse(_amount.text);
-    final note = _note.text.trim();
-    final group = _group.text.trim();
-    if (_loan) {
-      for (final id in _selected) {
-        await s.putRow(
-            'ious',
-            Iou(
-              personId: id,
-              amount: _iLent ? total : -total,
-              note: note.isEmpty ? (_iLent ? 'Lent' : 'Borrowed') : note,
-              date: _date,
-              group: group,
-              kind: IouKind.loan,
-            ).toMap());
-      }
-    } else {
-      final shares = _shares(total)!;
-      if (shares.values.any((v) => v < -0.01)) {
-        toast(context, 'Shares add up to more than the total');
-        return;
-      }
-      if (_iPaid) {
-        for (final id in _selected) {
-          await s.putRow(
-              'ious',
-              Iou(personId: id, amount: shares[id]!, note: note, date: _date, group: group)
-                  .toMap());
-        }
-      } else if (_payer != null && _includeMe) {
-        await s.putRow(
-            'ious',
-            Iou(personId: _payer!, amount: -(shares[-1] ?? 0), note: note, date: _date, group: group)
-                .toMap());
-      }
-      final mine = shares[-1] ?? 0;
-      if (_recordMyShare && _includeMe && mine > 0) {
-        final cid = s.recalledCategory(note) ??
-            await s.ensureCategory('Shared expenses', 'family', 0xFF0891B2);
-        await s.saveTxnReturningId(Txn(
-          type: TxType.expense,
-          amount: double.parse(mine.toStringAsFixed(2)),
-          categoryId: cid,
-          accountId: s.accounts.isEmpty ? null : s.accounts.first.id,
-          date: _date,
-          note: '${note.isEmpty ? 'Shared' : note} (my share)',
-        ));
-      }
-    }
-    if (mounted) Navigator.pop(context);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = context.watch<AppState>();
-    final cs = Theme.of(context).colorScheme;
-    final total = double.tryParse(_amount.text) ?? 0;
-    final shares = _loan ? null : _shares(total);
-
-    return Scaffold(
-      appBar: AppBar(title: Text(_loan ? 'Lend or borrow' : 'Split an expense')),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-          child: FilledButton(
-            style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(vertical: 16)),
-            onPressed: () => _save(s),
-            child: const Text('Save'),
-          ),
+/// A one-page statement of everything between me and [p].
+Future<void> sharePersonStatement(BuildContext context, AppState s, Person p) async {
+  try {
+    const brand = PdfColor.fromInt(0xFF0F766E);
+    final me = s.userName.isEmpty ? 'Me' : s.userName;
+    final b = s.personBalance(p.id!);
+    final rows = s.ious.where((i) => i.personId == p.id).toList()
+      ..sort((x, y) => x.date.compareTo(y.date));
+    String m(double v) => pdfSafe(plainMoney(v));
+    final doc = pw.Document(title: '${p.name} statement');
+    doc.addPage(pw.MultiPage(
+      pageFormat: PdfPageFormat.a5,
+      margin: const pw.EdgeInsets.all(28),
+      build: (_) => [
+        pw.Container(
+          padding: const pw.EdgeInsets.all(16),
+          decoration: const pw.BoxDecoration(
+              color: brand, borderRadius: pw.BorderRadius.all(pw.Radius.circular(10))),
+          child: pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+            pw.Text('STATEMENT', style: const pw.TextStyle(color: PdfColors.white, fontSize: 9, letterSpacing: 2)),
+            pw.SizedBox(height: 6),
+            pw.Text(pdfSafe('$me & ${p.name}'),
+                style: pw.TextStyle(color: PdfColors.white, fontSize: 17, fontWeight: pw.FontWeight.bold)),
+            pw.SizedBox(height: 8),
+            pw.Text(
+                pdfSafe(b.abs() < 0.5
+                    ? 'All settled'
+                    : b > 0
+                        ? '${p.name} owes $me ${m(b)}'
+                        : '$me owes ${p.name} ${m(-b)}'),
+                style: pw.TextStyle(color: PdfColors.white, fontSize: 14, fontWeight: pw.FontWeight.bold)),
+          ]),
         ),
-      ),
-      body: Form(
-        key: _key,
-        child: ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            SegmentedButton<bool>(
-              showSelectedIcon: false,
-              segments: const [
-                ButtonSegment(value: false, label: Text('Split expense'), icon: Icon(Icons.call_split_rounded)),
-                ButtonSegment(value: true, label: Text('Lend / borrow'), icon: Icon(Icons.swap_horiz_rounded)),
+        pw.SizedBox(height: 14),
+        pw.TableHelper.fromTextArray(
+          headers: ['Date', 'For', pdfSafe('${p.name} owes'), pdfSafe('$me owes')],
+          data: [
+            for (final i in rows)
+              [
+                DateFormat('d MMM yy').format(i.date),
+                pdfSafe(i.note.isEmpty ? 'Expense' : i.note),
+                i.amount > 0 ? m(i.amount) : '',
+                i.amount < 0 ? m(-i.amount) : '',
               ],
-              selected: {_loan},
-              onSelectionChanged: (v) => setState(() => _loan = v.first),
-            ),
-            const SizedBox(height: 16),
-            MoneyField(
-                controller: _amount,
-                autofocus: true,
-                label: _loan ? 'Amount' : 'Total bill',
-                onChanged: (_) => setState(() {})),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _note,
-              textCapitalization: TextCapitalization.sentences,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(labelText: 'What for?', hintText: 'Dinner, trip, rent…'),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _group,
-                    textCapitalization: TextCapitalization.words,
-                    decoration: const InputDecoration(labelText: 'Group (optional)', hintText: 'Murree trip'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(child: DateField(label: 'Date', value: _date, onChanged: (d) => setState(() => _date = d))),
-              ],
-            ),
-            const SectionTitle('People'),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final p in s.people)
-                  FilterChip(
-                    avatar: _Avatar(p, size: 22),
-                    label: Text(p.name),
-                    selected: _selected.contains(p.id),
-                    onSelected: (v) => setState(() =>
-                        v ? _selected.add(p.id!) : _selected.remove(p.id)),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _newPerson,
-                    textCapitalization: TextCapitalization.words,
-                    onSubmitted: (_) => _addPerson(s),
-                    decoration: const InputDecoration(
-                        hintText: 'Add a person', prefixIcon: Icon(Icons.person_add_alt_rounded)),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(onPressed: () => _addPerson(s), icon: const Icon(Icons.add_rounded)),
-              ],
-            ),
-            if (_loan) ...[
-              const SectionTitle('Direction'),
-              SegmentedButton<bool>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: true, label: Text('I lent')),
-                  ButtonSegment(value: false, label: Text('I borrowed')),
-                ],
-                selected: {_iLent},
-                onSelectionChanged: (v) => setState(() => _iLent = v.first),
-              ),
-            ] else ...[
-              const SectionTitle('Who paid?'),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  ChoiceChip(
-                    label: const Text('I paid'),
-                    selected: _iPaid,
-                    onSelected: (_) => setState(() => _iPaid = true),
-                  ),
-                  for (final p in s.people.where((p) => _selected.contains(p.id)))
-                    ChoiceChip(
-                      label: Text('${p.name} paid'),
-                      selected: !_iPaid && _payer == p.id,
-                      onSelected: (_) => setState(() {
-                        _iPaid = false;
-                        _payer = p.id;
-                      }),
-                    ),
-                ],
-              ),
-              const SectionTitle('How to split'),
-              SegmentedButton<_SplitMode>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: _SplitMode.equal, label: Text('Equally')),
-                  ButtonSegment(value: _SplitMode.exact, label: Text('Amounts')),
-                  ButtonSegment(value: _SplitMode.percent, label: Text('%')),
-                ],
-                selected: {_mode},
-                onSelectionChanged: (v) => setState(() => _mode = v.first),
-              ),
-              SwitchListTile(
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Include me'),
-                value: _includeMe,
-                onChanged: (v) => setState(() => _includeMe = v),
-              ),
-              AppCard(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                child: Column(
-                  children: [
-                    for (final p in s.people.where((p) => _selected.contains(p.id)))
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 6),
-                        child: Row(
-                          children: [
-                            _Avatar(p, size: 30),
-                            const SizedBox(width: 10),
-                            Expanded(child: Text(p.name)),
-                            if (_mode == _SplitMode.equal)
-                              Text(Fmt.money(shares?[p.id] ?? 0),
-                                  style: const TextStyle(fontWeight: FontWeight.w700))
-                            else
-                              SizedBox(
-                                width: 110,
-                                child: TextField(
-                                  controller: _ctl(p.id!),
-                                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                  onChanged: (_) => setState(() {}),
-                                  textAlign: TextAlign.right,
-                                  decoration: InputDecoration(
-                                    isDense: true,
-                                    suffixText: _mode == _SplitMode.percent ? '%' : null,
-                                    prefixText: _mode == _SplitMode.exact ? '${Fmt.symbol} ' : null,
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    if (_includeMe)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        child: Row(
-                          children: [
-                            const CircleAvatar(radius: 15, child: Icon(Icons.person_rounded, size: 18)),
-                            const SizedBox(width: 10),
-                            const Expanded(child: Text('Me')),
-                            Text(Fmt.money(shares?[-1] ?? 0),
-                                style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: (shares?[-1] ?? 0) < -0.01 ? _red : null)),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              if (_includeMe)
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Add my share to my expenses'),
-                  subtitle: const Text('So your budget stays accurate'),
-                  value: _recordMyShare,
-                  onChanged: (v) => setState(() => _recordMyShare = v),
-                ),
-              if (!_iPaid && !_includeMe)
-                Text('When someone else paid and you\'re not included, nothing is owed by you.',
-                    style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant)),
-            ],
           ],
+          headerStyle: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9.5),
+          headerDecoration: const pw.BoxDecoration(color: brand),
+          cellStyle: const pw.TextStyle(fontSize: 9.5),
+          cellAlignments: {2: pw.Alignment.centerRight, 3: pw.Alignment.centerRight},
+          oddRowDecoration: const pw.BoxDecoration(color: PdfColor.fromInt(0xFFF1F5F9)),
         ),
-      ),
-    );
+        pw.SizedBox(height: 10),
+        pw.Text('Made with Bills O9 Time - ${DateFormat('d MMM yyyy').format(DateTime.now())}',
+            style: const pw.TextStyle(color: PdfColor.fromInt(0xFF64748B), fontSize: 8)),
+      ],
+    ));
+    final bytes = await doc.save();
+    final name = 'statement-${p.name.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '-')}.pdf';
+    await Share.shareXFiles([XFile.fromData(bytes, name: name, mimeType: 'application/pdf')],
+        fileNameOverrides: [name], text: reminderText(s, p));
+  } catch (e) {
+    if (context.mounted) toast(context, 'Could not create PDF: $e');
   }
 }
 

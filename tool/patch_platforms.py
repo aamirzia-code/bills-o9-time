@@ -100,8 +100,8 @@ def patch_web():
             "description": "Bill organizer, expense tracker and budget planner",
             "start_url": ".",
             "display": "standalone",
-            "background_color": "#0F766E",
-            "theme_color": "#0F766E",
+            "background_color": "#000000",
+            "theme_color": "#000000",
             "orientation": "portrait",
         })
         man.write_text(json.dumps(m, indent=2))
@@ -114,7 +114,7 @@ def patch_web():
         if 'passkey.js' not in t:
             t = t.replace("</head>", '  <script src="passkey.js"></script>\n</head>', 1)
         if 'name="theme-color"' not in t:
-            t = t.replace("</head>", '  <meta name="theme-color" content="#0F766E">\n</head>', 1)
+            t = t.replace("</head>", '  <meta name="theme-color" content="#000000">\n</head>', 1)
         idx.write_text(t)
         print("patched index.html")
 

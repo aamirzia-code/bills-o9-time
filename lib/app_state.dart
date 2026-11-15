@@ -32,6 +32,7 @@ class AppState extends ChangeNotifier {
   List<Attachment> attachments = [];
   List<Person> people = [];
   List<Iou> ious = [];
+  List<SplitBill> splits = [];
   List<ShopList> lists = [];
   List<ListItem> listItems = [];
   List<Renewal> renewals = [];
@@ -124,6 +125,9 @@ class AppState extends ChangeNotifier {
         .toList();
     ious = (await _db.all('ious', orderBy: 'date DESC, id DESC'))
         .map(Iou.fromMap)
+        .toList();
+    splits = (await _db.all('splits', orderBy: 'date DESC, id DESC'))
+        .map(SplitBill.fromMap)
         .toList();
     lists = (await _db.all('lists', orderBy: 'created DESC'))
         .map(ShopList.fromMap)
@@ -560,6 +564,84 @@ class AppState extends ChangeNotifier {
 
   Future<void> removeWhere(String table, String where, List<Object?> args) async {
     await _db.deleteWhere(table, where, args);
+    await load();
+  }
+
+  SplitBill? splitById(int id) {
+    for (final x in splits) {
+      if (x.id == id) return x;
+    }
+    return null;
+  }
+
+  String personName(int id, {String me = 'You'}) {
+    if (id == -1) return me;
+    for (final p in people) {
+      if (p.id == id) return p.name;
+    }
+    return '?';
+  }
+
+  /// Saves a split bill and the IOUs it creates in my ledger.
+  Future<int> saveSplit(SplitBill b) async {
+    final id = await _db.insert('splits', b.toMap()..remove('id'));
+    final mine = b.parts.where((p) => p.person == -1).firstOrNull;
+    if (b.payer == -1) {
+      for (final p in b.parts) {
+        if (p.person == -1 || p.amount <= 0) continue;
+        await _db.insert(
+            'ious',
+            Iou(personId: p.person, amount: p.amount, note: b.title, date: b.date,
+                    group: b.group, splitId: id)
+                .toMap()
+              ..remove('id'));
+      }
+    } else if (mine != null && mine.amount > 0) {
+      await _db.insert(
+          'ious',
+          Iou(personId: b.payer, amount: -mine.amount, note: b.title, date: b.date,
+                  group: b.group, splitId: id)
+              .toMap()
+            ..remove('id'));
+    }
+    await load();
+    return id;
+  }
+
+  /// Marks [person]'s part of [b] as paid back (or not).
+  Future<void> setSplitSettled(SplitBill b, int person, bool paid) async {
+    final part = b.parts.firstWhere((p) => p.person == person);
+    final settled = {...b.settled};
+    paid ? settled.add(person) : settled.remove(person);
+    await _db.update('splits', b.copyWith(settled: settled).toMap());
+    // Only payments between me and someone else touch my ledger.
+    final ledgerPerson = b.payer == -1 ? person : (person == -1 ? b.payer : null);
+    if (ledgerPerson != null) {
+      final d = await _db.where('ious', 'split_id = ? AND kind = ? AND person_id = ?',
+          [b.id, IouKind.settle.index, ledgerPerson]);
+      for (final r in d) {
+        await _db.delete('ious', r['id'] as int);
+      }
+      if (paid) {
+        await _db.insert(
+            'ious',
+            Iou(
+              personId: ledgerPerson,
+              amount: b.payer == -1 ? -part.amount : part.amount,
+              note: 'Paid back · ${b.title}',
+              date: DateTime.now(),
+              kind: IouKind.settle,
+              splitId: b.id,
+            ).toMap()
+              ..remove('id'));
+      }
+    }
+    await load();
+  }
+
+  Future<void> deleteSplit(SplitBill b) async {
+    await _db.deleteWhere('ious', 'split_id = ?', [b.id]);
+    await _db.delete('splits', b.id!);
     await load();
   }
 

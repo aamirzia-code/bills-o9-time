@@ -7,6 +7,8 @@ import 'app_state.dart';
 import 'features/lock.dart';
 import 'features/onboarding.dart';
 import 'features/people.dart';
+import 'features/split_bill.dart';
+import 'sync/platform_stub.dart' if (dart.library.js_interop) 'sync/platform_web.dart';
 import 'i18n.dart';
 import 'notifications.dart';
 import 'screens/accounts_screen.dart';
@@ -75,10 +77,19 @@ class Responsive extends StatelessWidget {
   const Responsive({super.key, required this.child});
 
   static const maxWidth = 760.0;
+  static String? _lastColor;
 
   @override
   Widget build(BuildContext context) {
     final mq = MediaQuery.of(context);
+    if (kIsWeb) {
+      final bg = Theme.of(context).scaffoldBackgroundColor;
+      final hex = '#${(bg.value & 0xFFFFFF).toRadixString(16).padLeft(6, '0')}';
+      if (hex != _lastColor) {
+        _lastColor = hex;
+        webSetThemeColor(hex);
+      }
+    }
     if (mq.size.width <= maxWidth + 40) return child;
     final cs = Theme.of(context).colorScheme;
     return ColoredBox(
@@ -129,6 +140,14 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     // A friend's shared Split & Udhaar link: ?ledger=…
+    final split = kIsWeb ? Uri.base.queryParameters['split'] : null;
+    if (split != null && split.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Navigator.push(context,
+            MaterialPageRoute(builder: (_) => SplitViewScreen(encoded: split)));
+      });
+    }
     final ledger = kIsWeb ? Uri.base.queryParameters['ledger'] : null;
     if (ledger != null && ledger.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -161,7 +180,9 @@ class ShellState extends State<Shell> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final st = context.watch<AppState>();
     if (OnboardingScreen.needed(st) &&
-        !(kIsWeb && Uri.base.queryParameters.containsKey('ledger'))) {
+        !(kIsWeb &&
+            (Uri.base.queryParameters.containsKey('ledger') ||
+                Uri.base.queryParameters.containsKey('split')))) {
       return const OnboardingScreen();
     }
     final overdue = st.overdueBills.length;

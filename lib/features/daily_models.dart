@@ -1,3 +1,4 @@
+import 'dart:convert';
 // Models for the everyday tools. All stored on the device only.
 
 class Person {
@@ -37,7 +38,9 @@ class Iou {
     required this.date,
     this.group = '',
     this.kind = IouKind.split,
+    this.splitId,
   });
+  final int? splitId;
 
   Map<String, Object?> toMap() => {
         'id': id,
@@ -47,8 +50,10 @@ class Iou {
         'date': date.millisecondsSinceEpoch,
         'grp': group,
         'kind': kind.index,
+        'split_id': splitId,
       };
   factory Iou.fromMap(Map<String, Object?> m) => Iou(
+        splitId: m['split_id'] as int?,
         id: m['id'] as int,
         personId: m['person_id'] as int,
         amount: (m['amount'] as num).toDouble(),
@@ -239,5 +244,127 @@ class FuelLog {
         price: (m['price'] as num).toDouble(),
         odometer: ((m['odometer'] as num?) ?? 0).toDouble(),
         txnId: m['txn_id'] as int?,
+      );
+}
+
+
+/// How a split bill is divided.
+enum SplitMode { equal, exact, percent, shares }
+
+/// One person's part of a split bill. [person] is -1 for me.
+class SplitPart {
+  final int person;
+  final double value; // what was typed: amount, % or number of shares
+  final double amount; // resulting share of the bill
+  const SplitPart(this.person, this.value, this.amount);
+  List<num> toJson() => [person, value, double.parse(amount.toStringAsFixed(2))];
+  factory SplitPart.fromJson(List j) =>
+      SplitPart((j[0] as num).toInt(), (j[1] as num).toDouble(), (j[2] as num).toDouble());
+}
+
+/// Works out each person's share. Rounding leftovers go to the payer's row
+/// (or the first row) so parts always add up to the total.
+List<SplitPart> computeParts(double total, SplitMode mode, List<int> people,
+    Map<int, double> values, {int payer = -1}) {
+  if (people.isEmpty) return const [];
+  final raw = <int, double>{};
+  switch (mode) {
+    case SplitMode.equal:
+      for (final p in people) {
+        raw[p] = total / people.length;
+      }
+    case SplitMode.exact:
+      for (final p in people) {
+        raw[p] = values[p] ?? 0;
+      }
+    case SplitMode.percent:
+      for (final p in people) {
+        raw[p] = total * (values[p] ?? 0) / 100;
+      }
+    case SplitMode.shares:
+      final sum = people.fold<double>(0, (a, p) => a + (values[p] ?? 1));
+      for (final p in people) {
+        raw[p] = sum == 0 ? 0 : total * (values[p] ?? 1) / sum;
+      }
+  }
+  final rounded = {for (final e in raw.entries) e.key: (e.value * 100).round() / 100};
+  if (mode == SplitMode.equal || mode == SplitMode.shares) {
+    final diff = total - rounded.values.fold<double>(0, (a, b) => a + b);
+    final k = rounded.containsKey(payer) ? payer : people.first;
+    rounded[k] = ((rounded[k]! + diff) * 100).round() / 100;
+  }
+  return [
+    for (final p in people)
+      SplitPart(p, mode == SplitMode.shares ? (values[p] ?? 1) : (values[p] ?? 0), rounded[p]!)
+  ];
+}
+
+class SplitBill {
+  final int? id;
+  final String title;
+  final double total;
+  final DateTime date;
+  final int payer; // -1 = me, else person id
+  final SplitMode mode;
+  final String group;
+  final List<SplitPart> parts;
+  final Set<int> settled; // person ids who have paid back
+  const SplitBill({
+    this.id,
+    required this.title,
+    required this.total,
+    required this.date,
+    this.payer = -1,
+    this.mode = SplitMode.equal,
+    this.group = '',
+    required this.parts,
+    this.settled = const {},
+  });
+
+  double get assigned => parts.fold(0, (a, p) => a + p.amount);
+
+  /// Parts still owed to the payer.
+  Iterable<SplitPart> get owing =>
+      parts.where((p) => p.person != payer && !settled.contains(p.person) && p.amount > 0);
+
+  double get outstanding => owing.fold(0, (a, p) => a + p.amount);
+
+  SplitBill copyWith({Set<int>? settled}) => SplitBill(
+      id: id,
+      title: title,
+      total: total,
+      date: date,
+      payer: payer,
+      mode: mode,
+      group: group,
+      parts: parts,
+      settled: settled ?? this.settled);
+
+  Map<String, Object?> toMap() => {
+        'id': id,
+        'title': title,
+        'total': total,
+        'date': date.millisecondsSinceEpoch,
+        'payer': payer,
+        'mode': mode.index,
+        'grp': group,
+        'parts': jsonEncode([for (final p in parts) p.toJson()]),
+        'settled': jsonEncode(settled.toList()),
+      };
+
+  factory SplitBill.fromMap(Map<String, Object?> m) => SplitBill(
+        id: m['id'] as int,
+        title: m['title'] as String,
+        total: (m['total'] as num).toDouble(),
+        date: DateTime.fromMillisecondsSinceEpoch(m['date'] as int),
+        payer: (m['payer'] as int?) ?? -1,
+        mode: SplitMode.values[((m['mode'] as int?) ?? 0).clamp(0, SplitMode.values.length - 1)],
+        group: (m['grp'] as String?) ?? '',
+        parts: [
+          for (final j in (jsonDecode(m['parts'] as String) as List)) SplitPart.fromJson(j as List)
+        ],
+        settled: {
+          for (final x in (jsonDecode((m['settled'] as String?) ?? '[]') as List)) (x as num).toInt()
+        },
       );
 }

@@ -171,4 +171,32 @@ void main() {
       expect(r.renewed().expiry, DateTime(2027, 11, 25));
     });
   });
+
+  group('split bill', () {
+    test('equal split puts the rounding on the payer', () {
+      final p = computeParts(1000, SplitMode.equal, [-1, 1, 2], const {}, payer: -1);
+      expect(p.map((x) => x.amount).toList(), [333.34, 333.33, 333.33]);
+      expect(p.fold<double>(0, (a, x) => a + x.amount), closeTo(1000, 0.001));
+    });
+    test('shares and percent', () {
+      final sh = computeParts(6000, SplitMode.shares, [-1, 1, 2], {-1: 2, 1: 1, 2: 3});
+      expect(sh.map((x) => x.amount).toList(), [2000, 1000, 3000]);
+      final pc = computeParts(5000, SplitMode.percent, [-1, 1], {-1: 60, 1: 40});
+      expect(pc.map((x) => x.amount).toList(), [3000, 2000]);
+    });
+    test('outstanding skips payer and settled', () {
+      final b = SplitBill(
+        title: 'Dinner',
+        total: 3000,
+        date: DateTime(2026, 11, 15),
+        payer: -1,
+        parts: const [SplitPart(-1, 0, 1000), SplitPart(1, 0, 1000), SplitPart(2, 0, 1000)],
+        settled: const {2},
+      );
+      expect(b.outstanding, 1000);
+      final round = SplitBill.fromMap({...b.toMap(), 'id': 7});
+      expect(round.parts.length, 3);
+      expect(round.settled, {2});
+    });
+  });
 }
