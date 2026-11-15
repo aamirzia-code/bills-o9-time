@@ -357,7 +357,7 @@ ThemeData buildSkinTheme(Skin s) {
         letterSpacing: s.nav == NavKind.metro ? -0.5 : 0,
       ),
     ),
-    tabBarTheme: TabBarTheme(
+    tabBarTheme: TabBarThemeData(
       labelColor: s.tabLabel,
       unselectedLabelColor: s.tabUnselected,
       indicatorColor: s.tabIndicator,
@@ -403,7 +403,7 @@ ThemeData buildSkinTheme(Skin s) {
             top: Radius.circular(s.radius == 0 ? 0 : 20)),
       ),
     ),
-    dialogTheme: DialogTheme(
+    dialogTheme: DialogThemeData(
       backgroundColor: s.card2,
       surfaceTintColor: Colors.transparent,
       shape: RoundedRectangleBorder(

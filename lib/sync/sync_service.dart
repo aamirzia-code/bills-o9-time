@@ -311,7 +311,7 @@ class SyncService extends ChangeNotifier {
       final meta = await p.meta();
       if (meta == null) {
         busy = false;
-        return sync(force: true);
+        return await sync(force: true);
       }
       await _pull(p, pass, meta.rev);
       lastSync = DateTime.now();
