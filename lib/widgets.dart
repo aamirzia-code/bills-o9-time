@@ -388,3 +388,191 @@ class SearchField extends StatelessWidget {
         ),
       );
 }
+
+/// Paste from the clipboard. On iPhone Safari this shows the small "Paste"
+/// bubble the user taps once.
+Future<String> readClipboard() async {
+  try {
+    final d = await Clipboard.getData(Clipboard.kTextPlain);
+    return d?.text ?? '';
+  } catch (_) {
+    return '';
+  }
+}
+
+/// An ordered list of names, edited one line at a time (multi-line text
+/// boxes are unreliable on iPhone browsers). Drag to reorder, tap to rename,
+/// paste a whole list from WhatsApp in one go.
+class NameListEditor extends StatefulWidget {
+  final List<String> names;
+  final ValueChanged<List<String>> onChanged;
+  final List<String> suggestions;
+  final String hint;
+  const NameListEditor({
+    super.key,
+    required this.names,
+    required this.onChanged,
+    this.suggestions = const [],
+    this.hint = 'Add a name',
+  });
+
+  @override
+  State<NameListEditor> createState() => _NameListEditorState();
+}
+
+class _NameListEditorState extends State<NameListEditor> {
+  final _add = TextEditingController();
+  final _focus = FocusNode();
+
+  @override
+  void dispose() {
+    _add.dispose();
+    _focus.dispose();
+    super.dispose();
+  }
+
+  static List<String> splitNames(String text) => text
+      .split(RegExp(r'[\n,;]+'))
+      .map((e) => e.replaceAll(RegExp(r'^\s*(\d+[.)\-:]|[-•*])\s*'), '').trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
+  void _addText(String text, {bool keepFocus = true}) {
+    final add = splitNames(text);
+    if (add.isEmpty) return;
+    widget.onChanged([...widget.names, ...add]);
+    _add.clear();
+    if (keepFocus) _focus.requestFocus();
+  }
+
+  Future<void> _paste() async {
+    final t = await readClipboard();
+    if (!mounted) return;
+    if (splitNames(t).isEmpty) {
+      toast(context, 'Clipboard is empty — copy the names first');
+      return;
+    }
+    _addText(t, keepFocus: false);
+    toast(context, 'Added ${splitNames(t).length} from clipboard');
+  }
+
+  Future<void> _rename(int i) async {
+    final c = TextEditingController(text: widget.names[i]);
+    final v = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename'),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          textCapitalization: TextCapitalization.words,
+          onSubmitted: (v) => Navigator.pop(ctx, v.trim()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('Save')),
+        ],
+      ),
+    );
+    if (v == null || v.isEmpty) return;
+    final next = [...widget.names];
+    next[i] = v;
+    widget.onChanged(next);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final names = widget.names;
+    final sugg = widget.suggestions.where((s) => !names.contains(s)).take(8).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (names.isNotEmpty)
+          AppCard(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: ReorderableListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              buildDefaultDragHandles: false,
+              itemCount: names.length,
+              onReorder: (a, b) {
+                final next = [...names];
+                if (b > a) b--;
+                next.insert(b, next.removeAt(a));
+                widget.onChanged(next);
+              },
+              itemBuilder: (context, i) => ListTile(
+                key: ValueKey('n$i-${names[i]}'),
+                dense: true,
+                contentPadding: const EdgeInsets.only(left: 12, right: 4),
+                leading: CircleAvatar(
+                  radius: 14,
+                  backgroundColor: cs.primary.withOpacity(0.14),
+                  child: Text('${i + 1}',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w800, color: cs.primary)),
+                ),
+                title: Text(names[i], style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                onTap: () => _rename(i),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: 'Remove',
+                      icon: Icon(Icons.close_rounded, size: 20, color: cs.onSurfaceVariant),
+                      onPressed: () => widget.onChanged([...names]..removeAt(i)),
+                    ),
+                    ReorderableDragStartListener(
+                      index: i,
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: Icon(Icons.drag_indicator_rounded, color: cs.onSurfaceVariant),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _add,
+                focusNode: _focus,
+                textCapitalization: TextCapitalization.words,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (v) => _addText(v),
+                decoration: InputDecoration(
+                  hintText: widget.hint,
+                  prefixIcon: const Icon(Icons.person_add_alt_rounded),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filled(onPressed: () => _addText(_add.text), icon: const Icon(Icons.add_rounded)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionChip(
+              avatar: const Icon(Icons.content_paste_rounded, size: 17),
+              label: const Text('Paste list'),
+              onPressed: _paste,
+            ),
+            for (final s in sugg)
+              ActionChip(
+                avatar: const Icon(Icons.add_rounded, size: 17),
+                label: Text(s),
+                onPressed: () => widget.onChanged([...names, s]),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}

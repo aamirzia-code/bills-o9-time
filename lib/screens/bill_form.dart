@@ -313,7 +313,7 @@ class _BillFormState extends State<BillForm> {
             const SizedBox(height: 20),
             TextFormField(
               controller: _notes,
-              maxLines: 3,
+              textInputAction: TextInputAction.done,
               decoration: const InputDecoration(
                   labelText: 'Notes (account no., biller ID…)'),
             ),

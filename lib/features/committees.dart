@@ -352,7 +352,7 @@ class _CommitteeFormState extends State<CommitteeForm> {
   final _key = GlobalKey<FormState>();
   late final TextEditingController _name;
   late final TextEditingController _share;
-  late final TextEditingController _members;
+  late List<String> _members;
   late final TextEditingController _notes;
   late DateTime _start;
   late int _myTurn;
@@ -365,8 +365,8 @@ class _CommitteeFormState extends State<CommitteeForm> {
     _name = TextEditingController(text: c?.name ?? '');
     _share = TextEditingController(
         text: c == null ? '' : c.share.toStringAsFixed(0));
-    _members = TextEditingController(
-        text: c?.members.join('\n') ?? 'Me\n');
+    _members = [...?c?.members];
+    if (_members.isEmpty) _members.add('Me');
     _notes = TextEditingController(text: c?.notes ?? '');
     final now = DateTime.now();
     _start = c?.start ?? DateTime(now.year, now.month, 1, 9);
@@ -378,16 +378,11 @@ class _CommitteeFormState extends State<CommitteeForm> {
   void dispose() {
     _name.dispose();
     _share.dispose();
-    _members.dispose();
     _notes.dispose();
     super.dispose();
   }
 
-  List<String> get _memberList => _members.text
-      .split('\n')
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .toList();
+  List<String> get _memberList => _members;
 
   @override
   Widget build(BuildContext context) {
@@ -450,22 +445,20 @@ class _CommitteeFormState extends State<CommitteeForm> {
                 value: _start,
                 onChanged: (d) => setState(() => _start = d)),
             const SizedBox(height: 12),
-            TextFormField(
-              controller: _members,
-              minLines: 4,
-              maxLines: 14,
-              textCapitalization: TextCapitalization.words,
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                labelText: 'Members in payout order (one per line)',
-                alignLabelWithHint: true,
-              ),
+            Text('Members in payout order',
+                style: TextStyle(fontWeight: FontWeight.w700, color: cs.onSurfaceVariant)),
+            const SizedBox(height: 8),
+            NameListEditor(
+              names: _members,
+              hint: 'Add member',
+              suggestions: [for (final p in context.watch<AppState>().people) p.name],
+              onChanged: (v) => setState(() => _members = v),
             ),
             const SizedBox(height: 6),
             Text(
               n == 0
-                  ? 'Add members, one per line.'
-                  : '$n members · ${n} rounds · pot ${Fmt.money((double.tryParse(_share.text) ?? 0) * n)} · ends ${DateFormat('MMM yyyy').format(DateTime(_start.year, _start.month + n - 1))}',
+                  ? 'Add members — type a name and press return, or paste a list.'
+                  : '$n members · $n rounds · pot ${Fmt.money((double.tryParse(_share.text) ?? 0) * n)} · ends ${DateFormat('MMM yyyy').format(DateTime(_start.year, _start.month + n - 1))}',
               style: TextStyle(fontSize: 12.5, color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
@@ -485,7 +478,7 @@ class _CommitteeFormState extends State<CommitteeForm> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _notes,
-              maxLines: 3,
+              textInputAction: TextInputAction.done,
               decoration: const InputDecoration(labelText: 'Notes (optional)'),
             ),
             const SizedBox(height: 16),

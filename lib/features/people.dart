@@ -9,7 +9,6 @@ import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app_state.dart';
-import '../models.dart';
 import '../utils.dart';
 import '../widgets.dart';
 import 'daily_models.dart';
