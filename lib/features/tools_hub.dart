@@ -107,7 +107,7 @@ class ToolsHub extends StatelessWidget {
     final cs = Theme.of(context).colorScheme;
     final pinned = pinnedTools(s).map((t) => t.id).toList();
     final w = MediaQuery.sizeOf(context).width.clamp(0, 760);
-    final cols = w > 600 ? 4 : (w > 360 ? 3 : 2);
+    final cols = w > 600 ? 4 : (w > 440 ? 3 : 2);
 
     return Scaffold(
       appBar: AppBar(title: Text(tr('All tools'))),
@@ -124,7 +124,7 @@ class ToolsHub extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
-              childAspectRatio: 0.95,
+              childAspectRatio: cols == 2 ? 1.45 : 0.95,
               children: [
                 for (final t in g.value)
                   AppCard(

@@ -148,7 +148,7 @@ class _FuelScreenState extends State<FuelScreen> {
                         Fmt.date(l.date),
                         if (l.odometer > 0) '${l.odometer.toStringAsFixed(0)} km',
                       ].join(' · ')),
-                      trailing: Text(Fmt.money(l.cost), style: const TextStyle(fontWeight: FontWeight.w700)),
+                      trailing: Text(Fmt.money(l.cost), style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
                     ),
                   ),
               ],

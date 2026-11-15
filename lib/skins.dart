@@ -426,7 +426,7 @@ ThemeData buildSkinTheme(Skin s) {
           ? const RoundedRectangleBorder()
           : s.nav == NavKind.taskbar
               ? RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))
-              : const CircleBorder(),
+              : const StadiumBorder(),
     ),
   );
 }
